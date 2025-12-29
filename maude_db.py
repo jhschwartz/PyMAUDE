@@ -302,14 +302,14 @@ class MaudeDatabase:
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_master_date ON master(date_received)')
         
         if 'device' in tables and 'device' in existing_tables:
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_device_key ON device(mdr_report_key)')
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_device_code ON device(product_code)')
+            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_device_key ON device(MDR_REPORT_KEY)')
+            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_device_code ON device(DEVICE_REPORT_PRODUCT_CODE)')
         
         if 'patient' in tables and 'patient' in existing_tables:
             self.conn.execute('CREATE INDEX IF NOT EXISTS idx_patient_key ON patient(mdr_report_key)')
         
         if 'text' in tables and 'text' in existing_tables:
-            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_text_key ON text(mdr_report_key)')
+            self.conn.execute('CREATE INDEX IF NOT EXISTS idx_text_key ON text(MDR_REPORT_KEY)')
         
         self.conn.commit()
 
@@ -396,11 +396,11 @@ class MaudeDatabase:
         params = {}
         
         if device_name:
-            conditions.append("(d.generic_name LIKE :device OR d.brand_name LIKE :device)")
+            conditions.append("(d.GENERIC_NAME LIKE :device OR d.BRAND_NAME LIKE :device)")
             params['device'] = f'%{device_name}%'
-        
+
         if product_code:
-            conditions.append("d.product_code = :code")
+            conditions.append("d.DEVICE_REPORT_PRODUCT_CODE = :code")
             params['code'] = product_code
         
         if start_date:
@@ -438,10 +438,10 @@ class MaudeDatabase:
         params = {}
         
         if product_code:
-            condition = "d.product_code = :code"
+            condition = "d.DEVICE_REPORT_PRODUCT_CODE = :code"
             params['code'] = product_code
         elif device_name:
-            condition = "(d.generic_name LIKE :name OR d.brand_name LIKE :name)"
+            condition = "(d.GENERIC_NAME LIKE :name OR d.BRAND_NAME LIKE :name)"
             params['name'] = f'%{device_name}%'
         
         sql = f"""
@@ -472,11 +472,11 @@ class MaudeDatabase:
             DataFrame with mdr_report_key and narrative text
         """
         placeholders = ','.join('?' * len(mdr_report_keys))
-        
+
         sql = f"""
-            SELECT mdr_report_key, mdr_text
+            SELECT MDR_REPORT_KEY, FOI_TEXT
             FROM text
-            WHERE mdr_report_key IN ({placeholders})
+            WHERE MDR_REPORT_KEY IN ({placeholders})
         """
         
         return pd.read_sql_query(sql, self.conn, params=mdr_report_keys)

@@ -39,8 +39,8 @@ class TestMaudeDatabase(unittest.TestCase):
         with open(f'{self.test_data_dir}/mdrfoi2020.txt', 'w') as f:
             f.write(master_data)
         
-        # Sample device file (foidev)
-        device_data = """mdr_report_key|product_code|generic_name|brand_name
+        # Sample device file (foidev) - using uppercase column names like real FDA data
+        device_data = """MDR_REPORT_KEY|DEVICE_REPORT_PRODUCT_CODE|GENERIC_NAME|BRAND_NAME
 1234567|NIQ|Thrombectomy Device|DeviceX
 1234568|NIQ|Thrombectomy Device|DeviceY
 1234569|ABC|Other Device|DeviceZ"""
@@ -56,8 +56,8 @@ class TestMaudeDatabase(unittest.TestCase):
         with open(f'{self.test_data_dir}/patient2020.txt', 'w') as f:
             f.write(patient_data)
         
-        # Sample text file
-        text_data = """mdr_report_key|mdr_text_key|text_type_code|mdr_text
+        # Sample text file - using uppercase column names like real FDA data
+        text_data = """MDR_REPORT_KEY|MDR_TEXT_KEY|TEXT_TYPE_CODE|FOI_TEXT
 1234567|1|D|Patient experienced adverse event with device
 1234568|2|D|Fatal incident reported"""
         
@@ -309,7 +309,7 @@ class TestMaudeDatabase(unittest.TestCase):
         
         df = db.get_narratives(['1234567', '1234568'])
         self.assertEqual(len(df), 2)
-        self.assertIn('adverse event', df.iloc[0]['mdr_text'])
+        self.assertIn('adverse event', df.iloc[0]['FOI_TEXT'])
         
         db.close()
     
