@@ -15,6 +15,10 @@ dev:
 test:
 	venv/bin/python -m unittest discover tests -v
 
+init-db: setup
+	@echo "Initializing MAUDE database..."
+	./init_full_db.sh
+
 clean:
 	rm -rf venv
 	rm -rf maude_data/*.zip

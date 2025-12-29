@@ -31,6 +31,7 @@ htmlcov/
 
 # MAUDE data files
 maude_data/*.zip
+maude_data/*.txt
 examples/*.db
 examples/*.csv
 examples/*.png

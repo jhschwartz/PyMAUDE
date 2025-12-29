@@ -322,12 +322,12 @@ Create a README for your project:
 ## Environment
 - Python 3.9.7
 - maude_db version: [commit hash or release]
-- Analysis date: 2024-12-29
+- Analysis date: 2025-12-29
 
 ## Data
 - Years: 2018-2020
 - Tables: device, text
-- Downloaded: 2024-12-29
+- Downloaded: 2025-12-29
 - FDA MAUDE access: https://www.fda.gov/...
 ```
 
@@ -356,7 +356,7 @@ breakdown.to_csv('results/event_type_breakdown.csv')
 
 ```bash
 # Create dated database snapshots
-cp maude.db backups/maude_2024-12-29.db
+cp maude.db backups/maude_2025-12-29.db
 ```
 
 ### Track Data Versions
@@ -489,6 +489,125 @@ notable = trends[abs(trends['yoy_change']) > 20]
 print(f"\nYears with >20% change: {notable['year'].tolist()}")
 ```
 
+### Workflow 5: SQLite-Only Research
+
+**Goal**: Conduct research using only SQLite tools (no Python coding)
+
+This workflow is ideal for researchers comfortable with SQL but not Python, or those who want to export data for analysis in Excel, R, or other tools.
+
+#### Step 1: Initialize Database
+
+```bash
+cd /path/to/maude_db
+./init_full_db.sh
+```
+
+Follow prompts:
+- Year range: `2018-2024`
+- Tables: `1,2` (device and text)
+- Filename: `my_research.db`
+
+#### Step 2: Open in SQLite Tool
+
+- Download [DB Browser for SQLite](https://sqlitebrowser.org/) (free, cross-platform)
+- Open `my_research.db`
+
+#### Step 3: Explore Data
+
+```sql
+-- Check what's in the database
+SELECT COUNT(*) FROM device;
+
+-- Find your device type
+SELECT DISTINCT GENERIC_NAME
+FROM device
+WHERE GENERIC_NAME LIKE '%your_device%'
+ORDER BY GENERIC_NAME;
+```
+
+#### Step 4: Run Analysis Queries
+
+See [example_queries.sql](../examples/example_queries.sql) for ready-to-use queries:
+
+```sql
+-- Count events by year
+SELECT
+    strftime('%Y', DATE_RECEIVED) as year,
+    COUNT(*) as report_count
+FROM device
+WHERE GENERIC_NAME LIKE '%pacemaker%'
+GROUP BY year
+ORDER BY year;
+
+-- Get reports with narratives
+SELECT
+    d.GENERIC_NAME,
+    d.BRAND_NAME,
+    d.MANUFACTURER_D_NAME,
+    t.FOI_TEXT
+FROM device d
+JOIN text t ON d.MDR_REPORT_KEY = t.MDR_REPORT_KEY
+WHERE d.GENERIC_NAME LIKE '%your_device%'
+LIMIT 100;
+```
+
+#### Step 5: Export Results
+
+**In DB Browser for SQLite:**
+1. Run your query
+2. Click "Export to CSV" button
+3. Save the results
+
+**In DBeaver:**
+1. Run your query
+2. Right-click results → "Export Data"
+3. Choose CSV, Excel, or other format
+
+#### Step 6: Analyze Exported Data
+
+- Open CSV in Excel for charts and pivot tables
+- Import into R or Python for statistical analysis
+- Use Tableau, PowerBI for visualization
+- Share with collaborators
+
+#### Example Research Workflow
+
+**Research Question**: "How have pacemaker adverse events changed over time?"
+
+1. **Initialize database** with years 2015-2024, device and text tables
+2. **Query device counts** by year (SQL query)
+3. **Export to CSV**
+4. **Create chart in Excel** showing trends
+5. **Sample narratives** for qualitative analysis (SQL query with RANDOM())
+6. **Export narratives to CSV** for thematic coding
+7. **Combine quantitative and qualitative findings**
+
+#### Benefits of SQLite-Only Workflow
+
+- **No coding required**: Just SQL queries
+- **Visual interface**: Browse data in tables
+- **Easy export**: CSV works everywhere
+- **Shareable**: Send database file to collaborators
+- **Flexible**: Can always add Python later if needed
+
+#### Tips for SQLite Workflows
+
+1. **Start broad, then narrow**: First count total, then filter
+2. **Use LIMIT**: Preview before exporting large results
+3. **Save queries**: Keep a text file of useful queries
+4. **Check the guide**: See [sqlite_guide.md](sqlite_guide.md) for detailed instructions
+5. **Export early**: Get data into your preferred analysis tool
+
+#### When to Consider Python
+
+Switch to Python API when you need:
+- Complex data transformations
+- Automated workflows
+- Statistical analysis in Python
+- Integration with pandas, scikit-learn, etc.
+
+The database works with both approaches - use what fits your skills and needs!
+
 ---
 
 ## Understanding Limitations
@@ -530,7 +649,7 @@ For publications using MAUDE data:
 > establish causation. We used MAUDE data for signal detection and hypothesis
 > generation, recognizing inherent reporting biases and the lack of denominator
 > data on total devices in use. Analysis was performed using the maude_db
-> Python library (version X.X, Schwartz 2024).
+> Python library (version X.X, Schwartz 2025).
 
 ---
 
@@ -549,14 +668,14 @@ https://www.fda.gov/medical-devices/mandatory-reporting-requirements-manufacture
 ### Citing This Library
 
 ```
-Schwartz, J. (2024). maude_db: A Python library for FDA MAUDE database analysis.
-University of Michigan Medical School. https://github.com/[your-repo]
+Schwartz, J. (2025). maude_db: A Python library for FDA MAUDE database analysis.
+https://github.com/jhschwartz/maude_db
 ```
 
 ### In-Text Example
 
 > We queried the FDA MAUDE database (FDA 2024) using the maude_db Python
-> library (Schwartz 2024) for all adverse event reports involving thrombectomy
+> library (Schwartz 2025) for all adverse event reports involving thrombectomy
 > devices from 2018-2022.
 
 ### Data Availability Statement

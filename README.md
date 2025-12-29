@@ -19,7 +19,33 @@ For background on the MAUDE database, see [docs/maude_overview.md](docs/maude_ov
 - **Export Support**: Export query results to CSV for further analysis
 - **Research-Focused**: Designed for reproducibility and offline analysis
 
+
+## Installation
+
 ## Quick Start
+
+### Option 1: For Non-Programmers (SQLite Tools Only)
+
+If you want to use SQLite tools (DB Browser, DBeaver, etc.) without writing Python code:
+
+```bash
+# Run the initialization script
+./init_full_db.sh
+
+# Follow the prompts to:
+# 1. Enter year range (e.g., 2020-2024)
+# 2. Select tables (device, text, patient)
+# 3. Specify database filename
+
+# Then open the resulting .db file in your SQLite tool
+```
+
+**Next steps:**
+- Download DB Browser for SQLite: [https://sqlitebrowser.org/](https://sqlitebrowser.org/)
+- See [docs/sqlite_guide.md](docs/sqlite_guide.md) for usage guide
+- Try [examples/example_queries.sql](examples/example_queries.sql) for ready-to-use queries
+
+### Option 2: Python API
 
 ```python
 from maude_db import MaudeDatabase
@@ -38,8 +64,6 @@ print(trends)
 
 db.close()
 ```
-
-## Installation
 
 ### Requirements
 
@@ -88,9 +112,16 @@ pip install git+https://github.com/yourusername/maude_db.git
 
 ## Documentation
 
+### For SQLite Tool Users
+- **[SQLite Usage Guide](docs/sqlite_guide.md)** - Complete guide for using MAUDE databases with DB Browser, DBeaver, etc.
+- **[Example SQL Queries](examples/example_queries.sql)** - Ready-to-use SQL queries for common research tasks
+
+### For Python Users
 - **[Getting Started Guide](docs/getting_started.md)** - Step-by-step tutorial for first-time users
-- **[MAUDE Overview](docs/maude_overview.md)** - Understanding the FDA MAUDE database structure
 - **[API Reference](docs/api_reference.md)** - Complete documentation of all methods
+
+### General Resources
+- **[MAUDE Overview](docs/maude_overview.md)** - Understanding the FDA MAUDE database structure
 - **[Research Guide](docs/research_guide.md)** - Best practices for medical device research
 - **[Troubleshooting](docs/troubleshooting.md)** - Solutions to common problems
 
@@ -150,9 +181,8 @@ Bug reports and feature requests are welcome! Please open an issue on GitHub:
 If you use this library in your research, please cite:
 
 ```
-Schwartz, J. (2024). maude_db: A Python library for FDA MAUDE database analysis.
-University of Michigan Medical School.
-https://github.com/yourusername/maude_db
+Schwartz, J. (2025). maude_db: A Python library for FDA MAUDE database analysis.
+https://github.com/jhschwartz/maude_db
 ```
 
 **Note**: This citation format may be updated if/when results using this library are published in peer-reviewed literature.
@@ -168,14 +198,14 @@ Device Experience Database. https://www.fda.gov/medical-devices/mandatory-report
 
 This project is licensed under the GNU General Public License v3.0 (GPLv3) - see the [LICENSE](LICENSE) file for details.
 
-Copyright (C) 2024 Jacob Schwartz, University of Michigan Medical School
+Copyright (C) 2025 Jacob Schwartz, jaschwa@umich.edu
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
 ## Author
 
 **Jacob Schwartz**
-University of Michigan Medical School
+jaschwa@umich.edu
 
 ---
 

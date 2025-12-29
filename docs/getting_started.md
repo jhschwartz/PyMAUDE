@@ -334,6 +334,66 @@ for idx, row in narratives.iterrows():
     print(row['FOI_TEXT'][:200])  # First 200 characters
 ```
 
+## Alternative: Using SQLite Tools Directly
+
+If you prefer to work with SQLite tools (DB Browser, DBeaver, etc.) instead of Python, you can initialize a database and use it entirely through SQL queries.
+
+### Why Use SQLite Tools?
+
+**Benefits:**
+- No Python programming required
+- Visual data browsing
+- Easy CSV export
+- Familiar SQL interface
+- Works with Excel, R, or other analysis tools
+
+**When to use:**
+- You're comfortable with SQL but not Python
+- You want to export data to Excel or other tools
+- You prefer visual database browsers
+- You need to share data with non-programmers
+
+### Quick Start with SQLite Tools
+
+1. **Initialize the database:**
+   ```bash
+   cd /path/to/maude_db
+   ./init_full_db.sh
+   ```
+
+2. **Follow the prompts:**
+   - Enter year range (e.g., `2020-2024`)
+   - Select tables (e.g., `1,2` for device and text)
+   - Specify filename (e.g., `maude.db`)
+
+3. **Open in SQLite tool:**
+   - Download [DB Browser for SQLite](https://sqlitebrowser.org/) (free)
+   - Open your `.db` file
+   - Start querying!
+
+4. **Try example queries:**
+   - See [example_queries.sql](../examples/example_queries.sql)
+   - Copy queries into your SQLite tool's SQL editor
+   - Modify search terms for your research
+
+### Complete SQLite Guide
+
+For detailed instructions, see the **[SQLite Usage Guide](sqlite_guide.md)**, which covers:
+- Installing and using SQLite tools
+- Table structure and column names
+- Example queries for common research tasks
+- Exporting results to CSV
+- Performance tips
+
+### Using Both Approaches
+
+You can use both Python and SQLite tools on the same database:
+- Use Python for complex analysis and automation
+- Use SQLite tools for quick queries and data exploration
+- Export from either tool for use in R, Excel, etc.
+
+The database file (`.db`) works with both approaches interchangeably.
+
 ## Next Steps
 
 Now that you can download data and run basic queries, you're ready for:
@@ -343,6 +403,7 @@ Now that you can download data and run basic queries, you're ready for:
 Check out the [`examples/`](../examples/) directory:
 - [`basic_usage.py`](../examples/basic_usage.py) - Similar to this tutorial
 - [`analyze_device_trends.py`](../examples/analyze_device_trends.py) - Trend analysis with visualization
+- [`example_queries.sql`](../examples/example_queries.sql) - Ready-to-use SQL queries
 
 ### Advanced Features
 
@@ -357,8 +418,15 @@ See the [API Reference](api_reference.md) for:
 See the [Research Guide](research_guide.md) for:
 - Planning your analysis
 - Data quality considerations
-- Common research workflows
+- Common research workflows (including SQL-only workflows)
 - Reproducibility tips
+
+### SQLite Tools
+
+See the [SQLite Usage Guide](sqlite_guide.md) for:
+- Detailed SQLite tool instructions
+- SQL query examples
+- Export and analysis workflows
 
 ### Troubleshooting
 
@@ -370,4 +438,4 @@ If you encounter issues, check [Troubleshooting](troubleshooting.md) for:
 
 ---
 
-**Congratulations!** You've completed the getting started tutorial. You now know how to create a database, download MAUDE data, and run basic queries.
+**Congratulations!** You've completed the getting started tutorial. You now know how to create a database, download MAUDE data, and run queries using Python or SQLite tools.
