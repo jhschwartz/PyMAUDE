@@ -49,16 +49,35 @@ db.close()
 
 ### Setup
 
+**Quick setup using Makefile (recommended)**:
+
 ```bash
 # Clone or download this repository
 cd maude_db
 
+# Create virtual environment and install dependencies
+make setup
+
+# Activate virtual environment
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+**Manual setup**:
+
+```bash
 # Create and activate virtual environment
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
+```
+
+**For development** (includes testing dependencies):
+
+```bash
+make dev
+source venv/bin/activate
 ```
 
 For installing from GitHub:

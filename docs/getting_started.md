@@ -15,9 +15,35 @@ SQL knowledge is helpful for custom queries but not required for basic usage.
 
 ## Installation
 
-### 1. Set Up Virtual Environment
+### Option 1: Quick Setup with Makefile (Recommended)
 
-Using a virtual environment keeps your dependencies isolated:
+The easiest way to set up your environment:
+
+```bash
+# Navigate to the maude_db directory
+cd maude_db
+
+# Create virtual environment and install dependencies
+make setup
+
+# Activate the virtual environment
+source venv/bin/activate  # On macOS/Linux
+# OR
+venv\Scripts\activate     # On Windows
+
+# Your prompt should now show (venv)
+
+# Verify installation
+python -c "from maude_db import MaudeDatabase; print('Success!')"
+```
+
+If you see "Success!", you're ready to go!
+
+**Note**: For development work (including running tests), use `make dev` instead of `make setup` to install additional testing dependencies.
+
+### Option 2: Manual Setup
+
+If you prefer to set up manually:
 
 ```bash
 # Navigate to the maude_db directory
@@ -32,19 +58,13 @@ source venv/bin/activate  # On macOS/Linux
 venv\Scripts\activate     # On Windows
 
 # Your prompt should now show (venv)
-```
 
-### 2. Install Dependencies
-
-```bash
 # Install required packages
 pip install -r requirements.txt
 
 # Verify installation
 python -c "from maude_db import MaudeDatabase; print('Success!')"
 ```
-
-If you see "Success!", you're ready to go!
 
 ## Your First Database
 
