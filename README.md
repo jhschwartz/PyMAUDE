@@ -14,6 +14,10 @@ For background on the MAUDE database, see [docs/maude_overview.md](docs/maude_ov
 
 ## Key Features
 
+- **Intelligent Checksum Tracking**: Automatically prevents duplicate data and detects FDA file updates
+  - Skip reprocessing unchanged files (instant re-runs!)
+  - Automatically refresh when FDA updates historical data
+  - No manual deduplication needed
 - **Automated Downloads**: Fetch MAUDE data files directly from FDA servers with built-in caching
 - **Flexible Querying**: Simple methods for common queries plus full SQL access for complex analysis
 - **Trend Analysis**: Built-in functions for analyzing adverse events over time

@@ -28,6 +28,7 @@ from datetime import datetime
 import requests
 import zipfile
 from collections import defaultdict
+import hashlib
 
 from .metadata import TABLE_METADATA, FDA_BASE_URL
 from . import processors
@@ -63,9 +64,17 @@ class MaudeDatabase:
         self.db_path = db_path
         self.verbose = verbose
         self.conn = sqlite3.connect(self.db_path)
+
+        # Increase SQLite's maximum string/blob size limit to 1GB
+        # This helps handle large text fields in MAUDE data
+        self.conn.execute("PRAGMA max_length = 1073741824")  # 1GB
+
         self._download_cache = set()  # Track downloaded files to avoid re-downloading
         self.TABLE_METADATA = TABLE_METADATA
         self.base_url = FDA_BASE_URL
+
+        # Initialize metadata tracking table
+        self._init_metadata_table()
 
 
     def __enter__(self):
@@ -78,9 +87,162 @@ class MaudeDatabase:
         self.conn.close()
 
 
-    def add_years(self, years, tables=None, download=False, strict=False, chunk_size=100000, data_dir='./maude_data', interactive=True):
+    def _init_metadata_table(self):
+        """
+        Initialize metadata table to track loaded files and their checksums.
+
+        This table helps avoid reprocessing unchanged files and detects when
+        FDA updates their source data.
+        """
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS _maude_load_metadata (
+                table_name TEXT NOT NULL,
+                year INTEGER NOT NULL,
+                file_path TEXT NOT NULL,
+                file_checksum TEXT NOT NULL,
+                loaded_at TIMESTAMP NOT NULL,
+                row_count INTEGER,
+                PRIMARY KEY (table_name, year)
+            )
+        """)
+        self.conn.commit()
+
+
+    def _compute_file_checksum(self, filepath):
+        """
+        Compute SHA256 checksum of a file.
+
+        Args:
+            filepath: Path to file
+
+        Returns:
+            Hexadecimal checksum string, or None if file doesn't exist
+        """
+        if not os.path.exists(filepath):
+            return None
+
+        sha256_hash = hashlib.sha256()
+
+        # Read file in chunks to handle large files efficiently
+        with open(filepath, 'rb') as f:
+            for chunk in iter(lambda: f.read(4096 * 1024), b''):  # 4MB chunks
+                sha256_hash.update(chunk)
+
+        return sha256_hash.hexdigest()
+
+
+    def _get_loaded_file_info(self, table_name, year):
+        """
+        Get metadata about a previously loaded file.
+
+        Args:
+            table_name: Table name
+            year: Year
+
+        Returns:
+            Dict with file_checksum, loaded_at, row_count, or None if not found
+        """
+        cursor = self.conn.execute("""
+            SELECT file_checksum, loaded_at, row_count
+            FROM _maude_load_metadata
+            WHERE table_name = ? AND year = ?
+        """, (table_name, year))
+
+        row = cursor.fetchone()
+        if row:
+            return {
+                'file_checksum': row[0],
+                'loaded_at': row[1],
+                'row_count': row[2]
+            }
+        return None
+
+
+    def _record_file_load(self, table_name, year, filepath, file_checksum, row_count):
+        """
+        Record that a file has been loaded into the database.
+
+        Args:
+            table_name: Table name
+            year: Year
+            filepath: Path to source file
+            file_checksum: SHA256 checksum of file
+            row_count: Number of rows loaded
+        """
+        self.conn.execute("""
+            INSERT OR REPLACE INTO _maude_load_metadata
+            (table_name, year, file_path, file_checksum, loaded_at, row_count)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (table_name, year, filepath, file_checksum, datetime.now().isoformat(), row_count))
+        self.conn.commit()
+
+
+    def _delete_year_data(self, table_name, year):
+        """
+        Delete all data for a specific year from a table.
+
+        Used when refreshing data due to changed source files.
+
+        Args:
+            table_name: Table name
+            year: Year to delete
+        """
+        # Check if table exists first
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,)
+        )
+        if not cursor.fetchone():
+            return  # Table doesn't exist, nothing to delete
+
+        metadata = self.TABLE_METADATA.get(table_name, {})
+        date_column = metadata.get('date_column')
+
+        if not date_column:
+            if self.verbose:
+                print(f'  Warning: Cannot delete year {year} from {table_name} - no date column defined')
+            return
+
+        # Delete rows for this year
+        self.conn.execute(f"""
+            DELETE FROM {table_name}
+            WHERE strftime('%Y', {date_column}) = ?
+        """, (str(year),))
+        self.conn.commit()
+
+
+    def _count_table_rows(self, table_name):
+        """
+        Count rows in a table.
+
+        Args:
+            table_name: Table name
+
+        Returns:
+            Row count as integer, or 0 if table doesn't exist
+        """
+        # Check if table exists first
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,)
+        )
+        if not cursor.fetchone():
+            return 0
+
+        cursor = self.conn.execute(f"SELECT COUNT(*) FROM {table_name}")
+        return cursor.fetchone()[0]
+
+
+    def add_years(self, years, tables=None, download=False, strict=False, chunk_size=100000, data_dir='./maude_data', interactive=True, force_refresh=False):
         """
         Add MAUDE data for specified years to database.
+
+        Uses intelligent checksum tracking to avoid reprocessing unchanged files.
+        When a year/table has already been loaded, the source file checksum is
+        compared to detect FDA updates. Only changed files are reprocessed.
+
+        For cumulative files (master/patient), all years from that file share the
+        same checksum. If the file hasn't changed, all years are skipped together.
 
         Args:
             years: Year or years to add. Can be:
@@ -94,6 +256,7 @@ class MaudeDatabase:
             chunk_size: Rows to process at once (for memory efficiency)
             data_dir: Directory containing data files
             interactive: If True, prompt user for validation issues (default: True)
+            force_refresh: If True, reload all years even if unchanged (default: False)
         """
         years_list = self._parse_year_range(years)
 
@@ -160,7 +323,7 @@ class MaudeDatabase:
                             print(f'  Skipping {table} - download failed')
                         continue
 
-        # Process files with batch optimization
+        # Process files with batch optimization and checksum tracking
         if self.verbose:
             print(f'\nProcessing data files...')
 
@@ -175,6 +338,52 @@ class MaudeDatabase:
                     print(f'  Skipping {table} - file not found')
                 continue
 
+            # CHECKSUM TRACKING: Check if we need to process this file
+            current_checksum = self._compute_file_checksum(path)
+            if not current_checksum:
+                if self.verbose:
+                    print(f'  Warning: Could not compute checksum for {path}')
+                continue
+
+            # Check if all years from this file have been loaded with the same checksum
+            needs_processing = force_refresh
+            years_needing_refresh = []
+            years_already_loaded = []
+
+            if force_refresh:
+                # Force refresh: need to delete and reload all years
+                years_needing_refresh = list(years_for_file)
+            else:
+                # Check each year for changes
+                for year in years_for_file:
+                    loaded_info = self._get_loaded_file_info(table, year)
+                    if not loaded_info:
+                        # Never loaded before
+                        needs_processing = True
+                    elif loaded_info['file_checksum'] != current_checksum:
+                        # Checksum changed - FDA updated the file
+                        needs_processing = True
+                        years_needing_refresh.append(year)
+                    else:
+                        # Already loaded with same checksum
+                        years_already_loaded.append(year)
+
+                # If we need to process (for new/changed years), we must delete
+                # any years that were already loaded from this same file to avoid duplicates
+                if needs_processing and years_already_loaded:
+                    years_needing_refresh.extend(years_already_loaded)
+
+            if not needs_processing:
+                # All years already loaded and file unchanged
+                if self.verbose:
+                    if len(years_for_file) > 1:
+                        year_range = f"{min(years_for_file)}-{max(years_for_file)}"
+                        print(f'\n{table} for years {year_range} already loaded and unchanged, skipping')
+                    else:
+                        print(f'\n{table} for year {years_for_file[0]} already loaded and unchanged, skipping')
+                continue
+
+            # File needs processing
             if self.verbose:
                 if len(years_for_file) > 1:
                     year_range = f"{min(years_for_file)}-{max(years_for_file)}"
@@ -182,8 +391,21 @@ class MaudeDatabase:
                 else:
                     print(f'\nLoading {table} for year {years_for_file[0]}...')
 
+                if years_needing_refresh:
+                    print(f'  File changed, refreshing years: {years_needing_refresh}')
+
+            # Delete old data for years that need refresh
+            if years_needing_refresh:
+                for year in years_needing_refresh:
+                    if self.verbose:
+                        print(f'  Deleting old data for {table} year {year}...')
+                    self._delete_year_data(table, year)
+
             # Get metadata for this table
             metadata = self.TABLE_METADATA.get(table, {})
+
+            # Track rows loaded for metadata
+            rows_before = self._count_table_rows(table)
 
             # BATCH PROCESSING OPTIMIZATION: Use batch method for cumulative files with multiple years
             if pattern_type == 'cumulative' and len(years_for_file) > 1:
@@ -204,6 +426,13 @@ class MaudeDatabase:
                         if self.verbose and len(years_for_file) > 1:
                             print(f'  Processing year {year}...')
                         processors.process_file(year_path, table, self.conn, chunk_size, self.verbose)
+
+            # Record successful load for all years from this file
+            rows_after = self._count_table_rows(table)
+            rows_loaded = rows_after - rows_before
+
+            for year in years_for_file:
+                self._record_file_load(table, year, path, current_checksum, rows_loaded)
 
             loaded_tables.add(table)
 

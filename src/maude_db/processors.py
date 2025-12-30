@@ -23,6 +23,82 @@ Handles reading, parsing, and loading MAUDE data files into SQLite database.
 import pandas as pd
 
 
+# SQLite has a maximum string/blob size limit. Set to 100MB to be safe.
+MAX_TEXT_LENGTH = 100 * 1024 * 1024  # 100 MB
+
+
+def _identify_date_columns(df):
+    """
+    Identify columns that contain 'DATE' in their name.
+
+    Args:
+        df: DataFrame to analyze
+
+    Returns:
+        List of column names that appear to be date columns
+    """
+    date_columns = [col for col in df.columns if 'DATE' in col.upper()]
+    return date_columns
+
+
+def _parse_dates_flexible(df, date_columns):
+    """
+    Parse date columns with flexible format detection.
+
+    Handles multiple date formats commonly found in MAUDE data:
+    - MM/DD/YYYY
+    - YYYY/MM/DD
+    - MM-DD-YYYY
+    - YYYY-MM-DD
+    - And other variations
+
+    Args:
+        df: DataFrame to process
+        date_columns: List of column names to parse as dates
+
+    Returns:
+        DataFrame with date columns converted to datetime objects
+    """
+    df_copy = df.copy()
+
+    for col in date_columns:
+        if col in df_copy.columns:
+            # Use pandas to_datetime with flexible parsing
+            # errors='coerce' converts unparseable dates to NaT (Not a Time)
+            # format='mixed' suppresses the warning about mixed formats
+            df_copy[col] = pd.to_datetime(
+                df_copy[col],
+                errors='coerce',
+                format='mixed'
+            )
+
+    return df_copy
+
+
+def _truncate_large_text_columns(df, max_length=MAX_TEXT_LENGTH):
+    """
+    Truncate text columns that exceed SQLite's maximum string/blob size.
+
+    Args:
+        df: DataFrame to process
+        max_length: Maximum length for text fields (default: 100MB)
+
+    Returns:
+        DataFrame with truncated text columns
+    """
+    df_copy = df.copy()
+
+    for col in df_copy.columns:
+        # Check if column contains string data
+        if df_copy[col].dtype == 'object':
+            # Truncate strings that are too long
+            df_copy[col] = df_copy[col].apply(
+                lambda x: x[:max_length] if isinstance(x, str) and len(x) > max_length else x
+            )
+
+    return df_copy
+
+
 def process_file(filepath, table_name, conn, chunk_size, verbose=False):
     """
     Read MAUDE text file and insert into SQLite database.
@@ -35,6 +111,7 @@ def process_file(filepath, table_name, conn, chunk_size, verbose=False):
         verbose: Whether to print progress messages
     """
     total_rows = 0
+    date_columns = None
 
     for i, chunk in enumerate(pd.read_csv(
         filepath,
@@ -44,6 +121,18 @@ def process_file(filepath, table_name, conn, chunk_size, verbose=False):
         chunksize=chunk_size,
         low_memory=False
     )):
+        # Identify date columns on first chunk
+        if i == 0:
+            date_columns = _identify_date_columns(chunk)
+            if verbose and date_columns:
+                print(f'    Identified date columns: {", ".join(date_columns)}')
+
+        # Parse date columns with flexible format detection
+        if date_columns:
+            chunk = _parse_dates_flexible(chunk, date_columns)
+
+        # Truncate text columns that might exceed SQLite's max length
+        chunk = _truncate_large_text_columns(chunk)
         chunk.to_sql(table_name, conn, if_exists='append', index=False)
         total_rows += len(chunk)
 
@@ -72,6 +161,7 @@ def process_cumulative_file(filepath, table_name, year, metadata, conn, chunk_si
     """
     total_rows = 0
     filtered_rows = 0
+    date_columns = None
 
     # Fallback to regular processing if no date column defined
     if 'date_column' not in metadata:
@@ -90,12 +180,22 @@ def process_cumulative_file(filepath, table_name, year, metadata, conn, chunk_si
         chunksize=chunk_size,
         low_memory=False
     )):
+        # Identify date columns on first chunk
+        if i == 0:
+            date_columns = _identify_date_columns(chunk)
+            if verbose and date_columns:
+                print(f'    Identified date columns: {", ".join(date_columns)}')
+
+        # Parse date columns with flexible format detection
+        if date_columns:
+            chunk = _parse_dates_flexible(chunk, date_columns)
+
         total_rows += len(chunk)
 
         # Filter to specified year
         if date_col in chunk.columns:
-            # Extract year from date column
-            chunk['_year'] = pd.to_datetime(chunk[date_col], errors='coerce').dt.year
+            # Extract year from date column (already parsed as datetime)
+            chunk['_year'] = chunk[date_col].dt.year
             chunk_filtered = chunk[chunk['_year'] == year]
             chunk_filtered = chunk_filtered.drop(columns=['_year'])
         else:
@@ -104,6 +204,8 @@ def process_cumulative_file(filepath, table_name, year, metadata, conn, chunk_si
             chunk_filtered = chunk
 
         if len(chunk_filtered) > 0:
+            # Truncate text columns that might exceed SQLite's max length
+            chunk_filtered = _truncate_large_text_columns(chunk_filtered)
             chunk_filtered.to_sql(table_name, conn, if_exists='append', index=False)
             filtered_rows += len(chunk_filtered)
 
@@ -136,6 +238,7 @@ def process_cumulative_file_batch(filepath, table_name, years_list, metadata, co
     total_rows = 0
     year_counts = {year: 0 for year in years_list}
     years_set = set(years_list)
+    date_columns = None
 
     # Fallback to regular processing if no date column defined
     if 'date_column' not in metadata:
@@ -155,12 +258,22 @@ def process_cumulative_file_batch(filepath, table_name, years_list, metadata, co
         chunksize=chunk_size,
         low_memory=False
     )):
+        # Identify date columns on first chunk
+        if i == 0:
+            date_columns = _identify_date_columns(chunk)
+            if verbose and date_columns:
+                print(f'    Identified date columns: {", ".join(date_columns)}')
+
+        # Parse date columns with flexible format detection
+        if date_columns:
+            chunk = _parse_dates_flexible(chunk, date_columns)
+
         total_rows += len(chunk)
 
         # Filter to ANY requested year
         if date_col in chunk.columns:
-            # Extract year from date column
-            chunk['_year'] = pd.to_datetime(chunk[date_col], errors='coerce').dt.year
+            # Extract year from date column (already parsed as datetime)
+            chunk['_year'] = chunk[date_col].dt.year
 
             # Filter for any year in the requested set
             chunk_filtered = chunk[chunk['_year'].isin(years_set)]
@@ -177,6 +290,8 @@ def process_cumulative_file_batch(filepath, table_name, years_list, metadata, co
             chunk_filtered = chunk
 
         if len(chunk_filtered) > 0:
+            # Truncate text columns that might exceed SQLite's max length
+            chunk_filtered = _truncate_large_text_columns(chunk_filtered)
             chunk_filtered.to_sql(table_name, conn, if_exists='append', index=False)
 
         if verbose and i % 10 == 0 and i > 0:

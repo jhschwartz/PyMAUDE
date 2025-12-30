@@ -8,6 +8,7 @@ from datetime import datetime
 import sys
 
 from maude_db import MaudeDatabase
+from maude_db.processors import _identify_date_columns, _parse_dates_flexible
 
 
 class TestMaudeDatabase(unittest.TestCase):
@@ -31,19 +32,21 @@ class TestMaudeDatabase(unittest.TestCase):
     def _create_test_files(self):
         """Create sample MAUDE data files for testing"""
         # Sample master file (cumulative pattern: mdrfoithru2020.txt) - using uppercase column names like real FDA data
-        master_data = """MDR_REPORT_KEY|DATE_RECEIVED|EVENT_TYPE|MANUFACTURER_NAME
-1234567|2020-01-15|Injury|Test Manufacturer
-1234568|2020-02-20|Death|Another Manufacturer
-1234569|2020-03-10|Malfunction|Test Manufacturer"""
+        # Include multiple date formats to test flexible parsing
+        master_data = """MDR_REPORT_KEY|DATE_RECEIVED|EVENT_TYPE|MANUFACTURER_NAME|DATE_REPORT|DATE_OF_EVENT
+1234567|01/15/2020|Injury|Test Manufacturer|2020/01/10|2020-01-05
+1234568|02/20/2020|Death|Another Manufacturer|2020/02/15|2020-02-10
+1234569|03/10/2020|Malfunction|Test Manufacturer|2020/03/05|2020-03-01"""
 
         with open(f'{self.test_data_dir}/mdrfoithru2020.txt', 'w') as f:
             f.write(master_data)
 
         # Sample device file (yearly pattern: device2020.txt for year >= 2000) - using uppercase column names like real FDA data
-        device_data = """MDR_REPORT_KEY|DEVICE_REPORT_PRODUCT_CODE|GENERIC_NAME|BRAND_NAME
-1234567|NIQ|Thrombectomy Device|DeviceX
-1234568|NIQ|Thrombectomy Device|DeviceY
-1234569|ABC|Other Device|DeviceZ"""
+        # Include date columns with various formats
+        device_data = """MDR_REPORT_KEY|DEVICE_REPORT_PRODUCT_CODE|GENERIC_NAME|BRAND_NAME|DATE_RECEIVED|EXPIRATION_DATE_OF_DEVICE
+1234567|NIQ|Thrombectomy Device|DeviceX|2020/01/15|12/31/2025
+1234568|NIQ|Thrombectomy Device|DeviceY|01/20/2020|
+1234569|ABC|Other Device|DeviceZ|2020-01-25|2025-12-31"""
 
         with open(f'{self.test_data_dir}/device2020.txt', 'w') as f:
             f.write(device_data)
@@ -399,34 +402,134 @@ class TestMaudeDatabase(unittest.TestCase):
         """Test add_years with empty table list"""
         db = MaudeDatabase(self.test_db, verbose=False)
         db.add_years(2020, tables=[], download=False, data_dir=self.test_data_dir, interactive=False)
-        
+
         tables = pd.read_sql_query(
-            "SELECT name FROM sqlite_master WHERE type='table'",
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_%' ESCAPE '\\'",
             db.conn
         )['name'].tolist()
-        
+
+        # Should have no data tables (only internal metadata table _maude_load_metadata)
         self.assertEqual(len(tables), 0)
         db.close()
     
     def test_duplicate_year_addition(self):
-        """Test adding same year twice"""
+        """Test adding same year twice - checksum tracking prevents duplicates"""
         db = MaudeDatabase(self.test_db, verbose=False)
         db.add_years(2020, tables=['master'], download=False, data_dir=self.test_data_dir, interactive=False)
         db.add_years(2020, tables=['master'], download=False, data_dir=self.test_data_dir, interactive=False)
-        
-        # Should have duplicate rows
+
+        # With checksum tracking, should NOT have duplicate rows
         df = db.query("SELECT COUNT(*) as count FROM master")
-        self.assertEqual(df['count'][0], 6)  # 3 records x 2
-        
+        self.assertEqual(df['count'][0], 3)  # 3 records (no duplicates)
+
         db.close()
     
     def test_close(self):
         """Test close method"""
         db = MaudeDatabase(self.test_db, verbose=False)
         db.close()
-        
+
         with self.assertRaises(sqlite3.ProgrammingError):
             db.conn.execute("SELECT 1")
+
+    # ========== Date Parsing Tests ==========
+
+    def test_identify_date_columns(self):
+        """Test that date columns are identified correctly"""
+        df = pd.DataFrame({
+            'DATE_RECEIVED': ['01/01/2024'],
+            'DATE_REPORT': ['02/01/2024'],
+            'DEVICE_NAME': ['Test Device']
+        })
+
+        result = _identify_date_columns(df)
+
+        self.assertIn('DATE_RECEIVED', result)
+        self.assertIn('DATE_REPORT', result)
+        self.assertNotIn('DEVICE_NAME', result)
+        self.assertEqual(len(result), 2)
+
+    def test_parse_dates_flexible_multiple_formats(self):
+        """Test flexible date parsing handles MM/DD/YYYY format"""
+        df = pd.DataFrame({
+            'DATE_RECEIVED': ['01/15/2024', '02/20/2024', '12/31/2023']
+        })
+
+        result = _parse_dates_flexible(df, ['DATE_RECEIVED'])
+
+        self.assertTrue(pd.api.types.is_datetime64_any_dtype(result['DATE_RECEIVED']))
+        self.assertEqual(result['DATE_RECEIVED'].iloc[0], pd.Timestamp('2024-01-15'))
+        self.assertEqual(result['DATE_RECEIVED'].iloc[1], pd.Timestamp('2024-02-20'))
+        self.assertEqual(result['DATE_RECEIVED'].iloc[2], pd.Timestamp('2023-12-31'))
+
+    def test_parse_dates_handles_invalid_gracefully(self):
+        """Test that invalid dates are converted to NaT"""
+        df = pd.DataFrame({
+            'DATE_RECEIVED': ['01/15/2024', 'INVALID', '']
+        })
+
+        result = _parse_dates_flexible(df, ['DATE_RECEIVED'])
+
+        self.assertEqual(result['DATE_RECEIVED'].iloc[0], pd.Timestamp('2024-01-15'))
+        self.assertTrue(pd.isna(result['DATE_RECEIVED'].iloc[1]))
+        self.assertTrue(pd.isna(result['DATE_RECEIVED'].iloc[2]))
+
+    def test_dates_stored_as_timestamps_in_sqlite(self):
+        """Test that dates are stored as TIMESTAMP type in SQLite"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+        db.add_years(2020, tables=['master', 'device'], download=False,
+                    data_dir=self.test_data_dir, interactive=False)
+
+        # Check master table schema
+        cursor = db.conn.execute("PRAGMA table_info(master)")
+        columns = {row[1]: row[2] for row in cursor.fetchall()}
+
+        self.assertEqual(columns['DATE_RECEIVED'], 'TIMESTAMP')
+        self.assertEqual(columns['DATE_REPORT'], 'TIMESTAMP')
+        self.assertEqual(columns['DATE_OF_EVENT'], 'TIMESTAMP')
+
+        # Check device table schema
+        cursor = db.conn.execute("PRAGMA table_info(device)")
+        columns = {row[1]: row[2] for row in cursor.fetchall()}
+
+        self.assertEqual(columns['DATE_RECEIVED'], 'TIMESTAMP')
+        self.assertEqual(columns['EXPIRATION_DATE_OF_DEVICE'], 'TIMESTAMP')
+
+        db.close()
+
+    def test_date_filtering_works_in_sql(self):
+        """Test that date filtering works with SQL WHERE clauses"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+        db.add_years(2020, tables=['master'], download=False,
+                    data_dir=self.test_data_dir, interactive=False)
+
+        # Query using date filtering
+        result = db.query("""
+            SELECT COUNT(*) as count FROM master
+            WHERE DATE_RECEIVED >= '2020-02-01'
+        """)
+
+        self.assertEqual(result['count'][0], 2)  # Should match 2 records
+
+        db.close()
+
+    def test_date_extraction_with_strftime(self):
+        """Test that SQL date functions work on stored dates"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+        db.add_years(2020, tables=['master'], download=False,
+                    data_dir=self.test_data_dir, interactive=False)
+
+        # Use strftime to extract year
+        result = db.query("""
+            SELECT strftime('%Y', DATE_RECEIVED) as year, COUNT(*) as count
+            FROM master
+            GROUP BY year
+        """)
+
+        self.assertEqual(result['year'].iloc[0], '2020')
+        self.assertEqual(result['count'].iloc[0], 3)
+
+        db.close()
 
 
 if __name__ == '__main__':

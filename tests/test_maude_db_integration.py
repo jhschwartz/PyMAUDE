@@ -38,13 +38,7 @@ class TestMaudeDatabaseIntegration(unittest.TestCase):
         """Reset database before each test"""
         if os.path.exists(self.test_db):
             os.remove(self.test_db)
-
-    @pytest.mark.skip(reason="MDRFOI has no individual year files, only comprehensive mdrfoithru2024.zip which is too large for integration tests")
-    def test_download_single_year_master(self):
-        """Test downloading a single year of master (mdrfoi) data from FDA"""
-        # Note: FDA does not provide individual year files for mdrfoi
-        # Only mdrfoithru2024.zip exists which contains all historical data
-        pass
+            
 
     def test_download_single_year_device(self):
         """Test downloading device (foidev) data from FDA"""
@@ -251,6 +245,54 @@ class TestMaudeDatabaseIntegration(unittest.TestCase):
         print(f"\n✓ Found {len(all_devices)} device types in 1998 data")
         print("\nTop devices:")
         print(all_devices.to_string(index=False))
+
+        db.close()
+
+    def test_device_table_columns_match_source_file(self):
+        """Test that device table in SQLite has exactly the same columns as the source text file"""
+        db = MaudeDatabase(self.test_db, verbose=True)
+
+        # Download 1998 device data
+        db.add_years(
+            years=1998,
+            tables=['device'],
+            download=True,
+            data_dir=self.test_data_dir
+        )
+
+        # Read the source file to get expected columns
+        device_file = f"{self.test_data_dir}/foidev1998.txt"
+        self.assertTrue(os.path.exists(device_file),
+                       f"Device file not found: {device_file}")
+
+        # Read first line (header) from source file
+        with open(device_file, 'r', encoding='latin1') as f:
+            header = f.readline().strip()
+            expected_columns = set(header.split('|'))
+
+        print(f"\n✓ Source file has {len(expected_columns)} columns")
+
+        # Get actual columns from SQLite database
+        cursor = db.conn.execute("PRAGMA table_info(device)")
+        actual_columns = {row[1] for row in cursor.fetchall()}
+
+        print(f"✓ SQLite table has {len(actual_columns)} columns")
+
+        # Verify no extra columns were added by our processing
+        extra_columns = actual_columns - expected_columns
+        self.assertEqual(len(extra_columns), 0,
+                        f"Unexpected columns in device table: {extra_columns}")
+
+        # Verify no columns were lost during processing
+        missing_columns = expected_columns - actual_columns
+        self.assertEqual(len(missing_columns), 0,
+                        f"Missing columns in device table: {missing_columns}")
+
+        # Verify exact match
+        self.assertEqual(actual_columns, expected_columns,
+                        "Device table columns should exactly match source file")
+
+        print(f"✓ Device table columns match source file exactly")
 
         db.close()
 

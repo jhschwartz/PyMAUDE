@@ -14,10 +14,15 @@
   - Need better "update only" mechanism for incremental updates
   - Workaround: Check `db.info()` or `db._get_years_in_db()` before adding years
 
-- **Test suite needs updates** - Some integration tests failing (10 failures)
-  - Interactive mode tests fail in pytest (stdin prompts)
-  - Network-dependent tests may fail without internet
-  - Tests need `interactive=False` parameter added
+- **Test suite needs updates**
+  - One test is skipping, unsure why 
+  - Need to test to verify that column names are correct -- this was fixed in implementation but tests did not previously catch it. 
+
+
+- **Confirm utility of different tables** 
+  - What do they each have? are the master and patient tables even necessary? would be nice to not use them. it's possible they each contain minimal data already present elsewhere for convinience.
+
+
 
 ## Future Enhancements
 

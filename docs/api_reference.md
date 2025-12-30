@@ -87,9 +87,11 @@ db.close()
 
 ### Data Management
 
-#### `add_years(years, tables=None, download=False, strict=False, chunk_size=100000, data_dir='./maude_data')`
+#### `add_years(years, tables=None, download=False, strict=False, chunk_size=100000, data_dir='./maude_data', interactive=True, force_refresh=False)`
 
 Add MAUDE data for specified years to the database.
+
+**Intelligent Checksum Tracking**: This method automatically tracks file checksums to prevent duplicate data and detect FDA updates. When you add a year that's already been loaded, it checks if the source file has changed. If unchanged, processing is skipped. If changed (FDA updated the file), old data is automatically replaced with the new version.
 
 **Parameters**:
 
@@ -101,6 +103,8 @@ Add MAUDE data for specified years to the database.
 | `strict` | bool | `False` | Raise error on missing files (vs. skip) |
 | `chunk_size` | int | `100000` | Rows per batch (memory management) |
 | `data_dir` | str | `'./maude_data'` | Directory for data files |
+| `interactive` | bool | `True` | Prompt for validation issues |
+| `force_refresh` | bool | `False` | Reload data even if unchanged |
 
 **Year Format Options**:
 
@@ -147,11 +151,34 @@ db.add_years([2018, 2019], strict=True, download=True)
 ```
 
 **Notes**:
+- **Checksum Tracking**: Automatically prevents duplicate data when adding the same year multiple times
+  - First run: Processes file and stores SHA256 checksum
+  - Subsequent runs: Skips processing if file unchanged (instant!)
+  - FDA updates: Detects changed files and automatically refreshes data
+  - Use `force_refresh=True` to reload data even if unchanged
 - Files are cached in `data_dir` - subsequent runs are fast
 - Strict mode useful for critical data requirements
 - Master table only available as comprehensive file (too large)
 - Default chunk_size (100000) works for most systems
 - Lower chunk_size if you encounter memory issues
+
+**Examples with Checksum Tracking**:
+
+```python
+# First load - processes file
+db.add_years(2020, tables=['device'], download=True)
+
+# Second load - skips processing (file unchanged)
+db.add_years(2020, tables=['device'])  # Instant! Prints: "device for year 2020 already loaded and unchanged, skipping"
+
+# Force refresh (ignore checksums)
+db.add_years(2020, tables=['device'], force_refresh=True)  # Reprocesses even if unchanged
+
+# FDA updates historical data
+db.add_years(2020, tables=['device'], download=True)
+# If FDA changed the file: Automatically detects change, deletes old 2020 data, loads new version
+# If unchanged: Skips processing
+```
 
 **Related**: `update()`, `_download_file()`, `_make_file_path()`
 
