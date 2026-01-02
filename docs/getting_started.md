@@ -158,6 +158,8 @@ db.close()
 
 **Subsequent runs**: The ZIP file is cached, so re-running is instant.
 
+**Note**: For cumulative files (master and patient tables), the library automatically handles FDA's delayed update schedule. If you request data in early January and FDA hasn't yet uploaded the new year's cumulative file (e.g., `mdrfoithru2025.zip`), the library will automatically fall back to the most recent available file (e.g., `mdrfoithru2024.zip`) and show a warning. This is normal behavior and ensures you always get the latest available data.
+
 ### Download Parameters Explained
 
 ```python

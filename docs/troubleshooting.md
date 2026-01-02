@@ -93,6 +93,15 @@ if db._check_file_exists(2025, 'foidev'):
     db.add_years(2025, tables=['device'], download=True)
 ```
 
+**Note**: For cumulative files (master, patient), the library automatically falls back to older years if the expected file isn't available yet. This is common in early January when FDA hasn't updated to the new year yet. If you see a warning like:
+
+```
+WARNING: Expected file mdrfoithru2025.zip not available.
+Using mdrfoithru2024.zip instead (latest available cumulative file).
+```
+
+This is normal and the library will automatically use the most recent available file.
+
 ---
 
 ### Problem: Network timeout during download

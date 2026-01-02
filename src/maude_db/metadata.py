@@ -37,7 +37,8 @@ TABLE_METADATA = {
         'start_year': 1998,
         'current_year_prefix': 'device',  # For current year: device.zip
         'size_category': 'medium',
-        'description': 'Device information'
+        'description': 'Device information',
+        'date_column': 'DATE_RECEIVED'  # For filtering when force_refresh is used
     },
     'text': {
         'file_prefix': 'foitext',

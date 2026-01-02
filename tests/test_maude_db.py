@@ -531,6 +531,150 @@ class TestMaudeDatabase(unittest.TestCase):
 
         db.close()
 
+    # ========== URL Existence Check Tests ==========
+
+    def test_check_url_exists_valid_url(self):
+        """Test that _check_url_exists returns True for valid URLs"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # Test with a known valid URL (FDA website home page)
+        # Note: This requires internet connection and may be slow
+        # In a production test suite, you'd want to mock this
+        result = db._check_url_exists('https://www.fda.gov/')
+        self.assertTrue(result)
+
+        db.close()
+
+    def test_check_url_exists_invalid_url(self):
+        """Test that _check_url_exists returns False for invalid URLs"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # Test with a URL that definitely doesn't exist
+        result = db._check_url_exists('https://www.fda.gov/nonexistent-file-12345.zip')
+        self.assertFalse(result)
+
+        db.close()
+
+    def test_check_url_exists_handles_redirects(self):
+        """Test that _check_url_exists follows redirects correctly"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # HTTP -> HTTPS redirect should work
+        # Note: This test requires internet and may be fragile
+        result = db._check_url_exists('http://www.fda.gov/')
+        self.assertTrue(result)
+
+        db.close()
+
+    def test_check_url_exists_handles_timeout(self):
+        """Test that _check_url_exists handles timeouts gracefully"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # Use an IP that will timeout (non-routable address)
+        result = db._check_url_exists('http://192.0.2.1/test.zip')
+        self.assertFalse(result)
+
+        db.close()
+
+    # ========== Cumulative File Fallback Tests ==========
+
+    def test_construct_file_url_cumulative_fallback_logic(self):
+        """Test that cumulative file URL construction has fallback logic"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # Test for master table (cumulative pattern)
+        # The function should try multiple years if files don't exist
+        # We'll check that it attempts the fallback by mocking _check_url_exists
+
+        # Store original method
+        original_check = db._check_url_exists
+
+        # Track which URLs were checked
+        checked_urls = []
+
+        def mock_check(url):
+            checked_urls.append(url)
+            # Simulate: 2025 doesn't exist, 2024 exists
+            if '2025' in url:
+                return False
+            elif '2024' in url:
+                return True
+            return original_check(url)
+
+        # Replace method temporarily
+        db._check_url_exists = mock_check
+
+        # Request a historical year (which should use cumulative file)
+        url, filename = db._construct_file_url('master', 2023)
+
+        # Should have checked multiple years as fallback
+        self.assertGreater(len(checked_urls), 0)
+
+        # Should have selected 2024 file (first available)
+        self.assertIn('2024', filename)
+
+        # Restore original method
+        db._check_url_exists = original_check
+        db.close()
+
+    def test_construct_file_url_cumulative_uses_first_available(self):
+        """Test that cumulative file construction uses first available file"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        original_check = db._check_url_exists
+
+        def mock_check(url):
+            # Simulate: 2025 and 2024 don't exist, 2023 exists
+            if '2025' in url or '2024' in url:
+                return False
+            elif '2023' in url:
+                return True
+            return False
+
+        db._check_url_exists = mock_check
+
+        url, filename = db._construct_file_url('master', 2020)
+
+        # Should fall back to 2023 file
+        self.assertIn('2023', filename)
+
+        db._check_url_exists = original_check
+        db.close()
+
+    def test_construct_file_url_cumulative_handles_all_missing(self):
+        """Test that cumulative file construction handles case when all fallbacks missing"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        original_check = db._check_url_exists
+
+        def mock_check(url):
+            # Simulate: all files missing
+            return False
+
+        db._check_url_exists = mock_check
+
+        url, filename = db._construct_file_url('master', 2020)
+
+        # Should still return a URL (will be handled by download error later)
+        self.assertIsNotNone(url)
+        self.assertIsNotNone(filename)
+
+        db._check_url_exists = original_check
+        db.close()
+
+    def test_construct_file_url_yearly_not_affected(self):
+        """Test that yearly pattern files are not affected by fallback logic"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # Device table uses yearly pattern for recent years
+        url, filename = db._construct_file_url('device', 2020)
+
+        # Should have exact year in filename (no fallback)
+        self.assertEqual(filename, 'device2020.zip')
+        self.assertIn('device2020.zip', url)
+
+        db.close()
+
 
 if __name__ == '__main__':
     unittest.main()

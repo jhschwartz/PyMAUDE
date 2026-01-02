@@ -579,6 +579,26 @@ class MaudeDatabase:
             # For current year, use current year file
             # Historical: mdrfoithru2024.zip, patientthru2024.zip
             # Current year: mdrfoi.zip, patient.zip
+
+            # Try to find the most recent available cumulative file
+            # FDA may not have updated to current_year-1 yet (e.g., in early January)
+            # Try current_year-1, current_year-2, current_year-3 as fallbacks
+            expected_year = current_year - 1
+            for offset in [1, 2, 3]:
+                cumulative_year = current_year - offset
+                filename = f"{file_prefix}thru{cumulative_year}.zip"
+                url = f"{self.base_url}/{filename}"
+
+                # Check if this file exists on FDA server
+                if self._check_url_exists(url):
+                    if offset > 1:
+                        # Always warn when falling back, regardless of verbose setting
+                        expected_filename = f"{file_prefix}thru{expected_year}.zip"
+                        print(f'  WARNING: Expected file {expected_filename} not available.')
+                        print(f'  Using {filename} instead (latest available cumulative file).')
+                    return url, filename
+
+            # If none found, return the expected file and let download handle the error
             cumulative_year = current_year - 1
             filename = f"{file_prefix}thru{cumulative_year}.zip"
             url = f"{self.base_url}/{filename}"
@@ -930,6 +950,25 @@ class MaudeDatabase:
             return False
 
 
+    def _check_url_exists(self, url):
+        """
+        Check if a URL exists without downloading.
+
+        Args:
+            url: Full URL to check
+
+        Returns:
+            True if file exists (2xx status), False otherwise
+        """
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.head(url, headers=headers, timeout=5, allow_redirects=True)
+            # Accept any 2xx status code (200-299)
+            return 200 <= response.status_code < 300
+        except:
+            return False
+
+
     def _check_file_exists(self, year, file_prefix):
         """
         Check if a file exists on FDA server without downloading.
@@ -939,16 +978,10 @@ class MaudeDatabase:
             file_prefix: File type to check
 
         Returns:
-            True if file exists (status 200), False otherwise
+            True if file exists (2xx status), False otherwise
         """
         url = f"{self.base_url}/{file_prefix}{year}.zip"
-
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            response = requests.head(url, headers=headers, timeout=5)
-            return response.status_code == 200
-        except:
-            return False
+        return self._check_url_exists(url)
 
 
     def update(self):
@@ -1133,6 +1166,183 @@ class MaudeDatabase:
         if self.verbose:
             print(f'Exported {len(df):,} records to {output_file}')
 
+
+    # ==================== Helper Query Methods ====================
+
+    def get_narratives_for(self, results_df):
+        """
+        Get narratives for a query result DataFrame.
+
+        Convenience method that extracts MDR_REPORT_KEYs from a DataFrame
+        and retrieves their narratives. Useful for chaining after query_device().
+
+        Args:
+            results_df: DataFrame containing MDR_REPORT_KEY column
+                       (typically from query_device() or similar)
+
+        Returns:
+            DataFrame with mdr_report_key and narrative text
+
+        Example:
+            results = db.query_device(device_name='thrombectomy')
+            narratives = db.get_narratives_for(results)
+        """
+        if 'MDR_REPORT_KEY' not in results_df.columns:
+            raise ValueError("DataFrame must contain 'MDR_REPORT_KEY' column")
+
+        keys = results_df['MDR_REPORT_KEY'].tolist()
+        return self.get_narratives(keys)
+
+
+    def trends_for(self, results_df):
+        """
+        Get yearly trends for a query result DataFrame.
+
+        Analyzes the provided DataFrame to compute yearly event counts
+        and breakdowns by event type (deaths, injuries, malfunctions).
+
+        Args:
+            results_df: DataFrame with DATE_RECEIVED and EVENT_TYPE columns
+                       (typically from query_device())
+
+        Returns:
+            DataFrame with columns: year, event_count, deaths, injuries, malfunctions
+
+        Example:
+            results = db.query_device(device_name='pacemaker')
+            trends = db.trends_for(results)
+        """
+        required_cols = ['DATE_RECEIVED', 'EVENT_TYPE']
+        missing = [col for col in required_cols if col not in results_df.columns]
+        if missing:
+            raise ValueError(f"DataFrame missing required columns: {missing}")
+
+        # Create a temporary copy with year extracted
+        df = results_df.copy()
+        df['year'] = pd.to_datetime(df['DATE_RECEIVED']).dt.year
+
+        # Aggregate by year
+        trends = df.groupby('year').agg(
+            event_count=('year', 'size'),
+            deaths=('EVENT_TYPE', lambda x: x.str.contains('Death', case=False, na=False).sum()),
+            injuries=('EVENT_TYPE', lambda x: x.str.contains('Injury', case=False, na=False).sum()),
+            malfunctions=('EVENT_TYPE', lambda x: x.str.contains('Malfunction', case=False, na=False).sum())
+        ).reset_index()
+
+        return trends
+
+
+    def event_type_breakdown_for(self, results_df):
+        """
+        Get event type breakdown for a query result DataFrame.
+
+        Provides summary statistics of event types (deaths, injuries, malfunctions)
+        in the provided DataFrame.
+
+        Args:
+            results_df: DataFrame with EVENT_TYPE column
+                       (typically from query_device())
+
+        Returns:
+            dict with counts: {
+                'total': int,
+                'deaths': int,
+                'injuries': int,
+                'malfunctions': int,
+                'other': int
+            }
+
+        Example:
+            results = db.query_device(device_name='thrombectomy')
+            breakdown = db.event_type_breakdown_for(results)
+            print(f"Deaths: {breakdown['deaths']}")
+        """
+        if 'EVENT_TYPE' not in results_df.columns:
+            raise ValueError("DataFrame must contain 'EVENT_TYPE' column")
+
+        total = len(results_df)
+        event_type = results_df['EVENT_TYPE'].fillna('')
+
+        deaths = event_type.str.contains('Death', case=False).sum()
+        injuries = event_type.str.contains('Injury', case=False).sum()
+        malfunctions = event_type.str.contains('Malfunction', case=False).sum()
+
+        # Events can have multiple types, so other is approximate
+        other = total - max(deaths, injuries, malfunctions)
+
+        return {
+            'total': total,
+            'deaths': int(deaths),
+            'injuries': int(injuries),
+            'malfunctions': int(malfunctions),
+            'other': max(0, int(other))
+        }
+
+
+    def top_manufacturers_for(self, results_df, n=10):
+        """
+        Get top manufacturers from a query result DataFrame.
+
+        Args:
+            results_df: DataFrame with MANUFACTURER_D_NAME column
+                       (typically from query_device())
+            n: Number of top manufacturers to return (default: 10)
+
+        Returns:
+            DataFrame with columns: manufacturer, event_count
+            Sorted by event_count descending
+
+        Example:
+            results = db.query_device(device_name='pacemaker')
+            top_mfg = db.top_manufacturers_for(results, n=5)
+        """
+        if 'MANUFACTURER_D_NAME' not in results_df.columns:
+            raise ValueError("DataFrame must contain 'MANUFACTURER_D_NAME' column")
+
+        counts = results_df['MANUFACTURER_D_NAME'].value_counts().head(n)
+        return pd.DataFrame({
+            'manufacturer': counts.index,
+            'event_count': counts.values
+        })
+
+
+    def date_range_summary_for(self, results_df):
+        """
+        Get date range summary for a query result DataFrame.
+
+        Args:
+            results_df: DataFrame with DATE_RECEIVED column
+                       (typically from query_device())
+
+        Returns:
+            dict with: {
+                'first_date': str,
+                'last_date': str,
+                'total_days': int,
+                'total_records': int
+            }
+
+        Example:
+            results = db.query_device(device_name='thrombectomy')
+            summary = db.date_range_summary_for(results)
+            print(f"Data spans {summary['total_days']} days")
+        """
+        if 'DATE_RECEIVED' not in results_df.columns:
+            raise ValueError("DataFrame must contain 'DATE_RECEIVED' column")
+
+        dates = pd.to_datetime(results_df['DATE_RECEIVED'])
+        first = dates.min()
+        last = dates.max()
+
+        return {
+            'first_date': str(first.date()) if pd.notna(first) else None,
+            'last_date': str(last.date()) if pd.notna(last) else None,
+            'total_days': (last - first).days if pd.notna(first) and pd.notna(last) else 0,
+            'total_records': len(results_df)
+        }
+
+
+    # ==================== Database Info Methods ====================
 
     def info(self):
         """

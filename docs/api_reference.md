@@ -8,6 +8,7 @@ Complete technical reference for the `maude_db` library.
   - [Initialization](#initialization)
   - [Data Management](#data-management)
   - [Querying](#querying)
+  - [Helper Query Methods](#helper-query-methods)
   - [Export & Utilities](#export--utilities)
   - [Internal Methods](#internal-methods-advanced)
 
@@ -156,6 +157,11 @@ db.add_years([2018, 2019], strict=True, download=True)
   - Subsequent runs: Skips processing if file unchanged (instant!)
   - FDA updates: Detects changed files and automatically refreshes data
   - Use `force_refresh=True` to reload data even if unchanged
+- **Cumulative File Fallback**: For master and patient tables (cumulative files), the library automatically handles FDA's delayed update schedule
+  - If the expected cumulative file isn't available (e.g., `mdrfoithru2025.zip` in early January 2026), the library will automatically try older files
+  - Falls back through up to 3 years (e.g., tries 2025 → 2024 → 2023)
+  - Displays a warning when using an older file than expected
+  - This ensures you always get the latest available data, even during FDA's transition periods
 - Files are cached in `data_dir` - subsequent runs are fast
 - Strict mode useful for critical data requirements
 - Master table only available as comprehensive file (too large)
@@ -375,7 +381,7 @@ plt.title('Catheter Adverse Events Over Time')
 plt.show()
 ```
 
-**Related**: `query_device()`, `query()`
+**Related**: `query_device()`, `query()`, `trends_for()`
 
 ---
 
@@ -428,7 +434,167 @@ keys = serious['MDR_REPORT_KEY'].tolist()
 narratives = db.get_narratives(keys)
 ```
 
-**Related**: `query_device()`, `add_years()`
+**Related**: `query_device()`, `add_years()`, `get_narratives_for()`
+
+---
+
+### Helper Query Methods
+
+These methods operate on query result DataFrames to reduce boilerplate code and make common analysis tasks easier. They accept DataFrames returned by `query_device()` or similar methods.
+
+---
+
+#### `get_narratives_for(results_df)`
+
+Get narratives for a query result DataFrame.
+
+Convenience wrapper that extracts MDR_REPORT_KEYs from a DataFrame and retrieves their narratives.
+
+**Parameters**:
+- `results_df` (DataFrame): DataFrame containing `MDR_REPORT_KEY` column (typically from `query_device()`)
+
+**Returns**: pandas.DataFrame with `MDR_REPORT_KEY` and `FOI_TEXT` columns
+
+**Example**:
+
+```python
+# Old way (more verbose)
+results = db.query_device(device_name='thrombectomy')
+keys = results['MDR_REPORT_KEY'].tolist()
+narratives = db.get_narratives(keys)
+
+# New way (cleaner)
+results = db.query_device(device_name='thrombectomy')
+narratives = db.get_narratives_for(results)
+```
+
+**Related**: `get_narratives()`, `query_device()`
+
+---
+
+#### `trends_for(results_df)`
+
+Get yearly trends for a query result DataFrame.
+
+Analyzes the provided DataFrame to compute yearly event counts and breakdowns by event type.
+
+**Parameters**:
+- `results_df` (DataFrame): DataFrame with `DATE_RECEIVED` and `EVENT_TYPE` columns
+
+**Returns**: pandas.DataFrame with columns: `year`, `event_count`, `deaths`, `injuries`, `malfunctions`
+
+**Example**:
+
+```python
+# Query for specific device
+results = db.query_device(device_name='pacemaker')
+
+# Get trends just for these results
+trends = db.trends_for(results)
+print(trends)
+#    year  event_count  deaths  injuries  malfunctions
+# 0  2020          150       5        45           100
+# 1  2021          165       7        52           106
+```
+
+**Related**: `get_trends_by_year()`, `query_device()`
+
+---
+
+#### `event_type_breakdown_for(results_df)`
+
+Get event type breakdown for a query result DataFrame.
+
+Provides summary statistics of event types in the provided DataFrame.
+
+**Parameters**:
+- `results_df` (DataFrame): DataFrame with `EVENT_TYPE` column
+
+**Returns**: dict with counts:
+```python
+{
+    'total': int,           # Total events
+    'deaths': int,          # Events with Death
+    'injuries': int,        # Events with Injury
+    'malfunctions': int,    # Events with Malfunction
+    'other': int           # Events not in above categories
+}
+```
+
+**Example**:
+
+```python
+results = db.query_device(device_name='thrombectomy')
+breakdown = db.event_type_breakdown_for(results)
+
+print(f"Total: {breakdown['total']}")
+print(f"Deaths: {breakdown['deaths']} ({breakdown['deaths']/breakdown['total']*100:.1f}%)")
+print(f"Injuries: {breakdown['injuries']}")
+print(f"Malfunctions: {breakdown['malfunctions']}")
+```
+
+**Notes**:
+- Event types are not mutually exclusive (one event can have multiple types)
+- `other` is approximate since events can have multiple types
+
+**Related**: `query_device()`
+
+---
+
+#### `top_manufacturers_for(results_df, n=10)`
+
+Get top manufacturers from a query result DataFrame.
+
+**Parameters**:
+- `results_df` (DataFrame): DataFrame with `MANUFACTURER_D_NAME` column
+- `n` (int, default=10): Number of top manufacturers to return
+
+**Returns**: pandas.DataFrame with columns: `manufacturer`, `event_count`
+
+**Example**:
+
+```python
+results = db.query_device(device_name='pacemaker')
+top_5 = db.top_manufacturers_for(results, n=5)
+
+print("Top 5 Manufacturers:")
+for idx, row in top_5.iterrows():
+    print(f"{idx+1}. {row['manufacturer']}: {row['event_count']} events")
+```
+
+**Related**: `query_device()`
+
+---
+
+#### `date_range_summary_for(results_df)`
+
+Get date range summary for a query result DataFrame.
+
+**Parameters**:
+- `results_df` (DataFrame): DataFrame with `DATE_RECEIVED` column
+
+**Returns**: dict with:
+```python
+{
+    'first_date': str,      # First event date (YYYY-MM-DD)
+    'last_date': str,       # Last event date (YYYY-MM-DD)
+    'total_days': int,      # Days between first and last
+    'total_records': int    # Total records
+}
+```
+
+**Example**:
+
+```python
+results = db.query_device(device_name='catheter')
+summary = db.date_range_summary_for(results)
+
+print(f"Data spans {summary['total_days']} days")
+print(f"From {summary['first_date']} to {summary['last_date']}")
+print(f"Total records: {summary['total_records']:,}")
+```
+
+**Related**: `query_device()`
 
 ---
 
