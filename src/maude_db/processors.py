@@ -117,9 +117,10 @@ def process_file(filepath, table_name, conn, chunk_size, verbose=False):
         filepath,
         sep='|',
         encoding='latin1',
-        on_bad_lines='skip',
+        on_bad_lines='warn',  # Changed from 'skip' to 'warn' - still skips but warns
         chunksize=chunk_size,
-        low_memory=False
+        engine='python',  # Python engine is more lenient with malformed lines
+        quoting=3  # QUOTE_NONE - don't use special quoting
     )):
         # Identify date columns on first chunk
         if i == 0:
@@ -176,9 +177,10 @@ def process_cumulative_file(filepath, table_name, year, metadata, conn, chunk_si
         filepath,
         sep='|',
         encoding='latin1',
-        on_bad_lines='skip',
+        on_bad_lines='warn',  # Changed from 'skip' to 'warn' - still skips but warns
         chunksize=chunk_size,
-        low_memory=False
+        engine='python',  # Python engine is more lenient with malformed lines
+        quoting=3  # QUOTE_NONE - don't use special quoting
     )):
         # Identify date columns on first chunk
         if i == 0:
@@ -254,9 +256,10 @@ def process_cumulative_file_batch(filepath, table_name, years_list, metadata, co
         filepath,
         sep='|',
         encoding='latin1',
-        on_bad_lines='skip',
+        on_bad_lines='warn',  # Changed from 'skip' to 'warn' - still skips but warns
         chunksize=chunk_size,
-        low_memory=False
+        engine='python',  # Python engine is more lenient with malformed lines
+        quoting=3  # QUOTE_NONE - don't use special quoting
     )):
         # Identify date columns on first chunk
         if i == 0:
