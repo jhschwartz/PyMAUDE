@@ -1,15 +1,17 @@
 PYTHON := python3.11
 
+.PHONY: setup install dev test init-db check-fda check-fda-quick archive archive-recent clean-notebooks clean
+
 setup:
 	$(PYTHON) -m venv venv
 	venv/bin/pip install --upgrade pip
 	venv/bin/pip install -e .
 
-install:
+install: setup
 	venv/bin/pip install -r requirements.txt
 
-dev:
-	venv/bin/pip install -r requirements.txt 
+dev: setup
+	venv/bin/pip install -r requirements.txt
 	venv/bin/pip install -r requirements-dev.txt
 
 test:
@@ -37,7 +39,17 @@ archive-recent:
 	START_YEAR=$$((CURRENT_YEAR - 4)); \
 	venv/bin/python archive_tools/prepare_zenodo_archive.py --years $$START_YEAR-$$CURRENT_YEAR --output maude_recent
 
-clean:
+clean-notebooks:
+	@echo "Cleaning notebook-generated files..."
+	rm -rf notebooks/maude_data
+	rm -f notebooks/*.db
+	rm -f notebooks/*.png
+	rm -f notebooks/*.pdf
+	rm -f notebooks/*.txt
+	rm -f notebooks/*.csv
+
+clean: clean-notebooks
+	@echo "Cleaning all generated files..."
 	rm -rf venv
 	rm -rf maude_data/*.zip
 	rm -rf __pycache__ tests/__pycache__ src/maude_db/__pycache__
@@ -49,6 +61,5 @@ clean:
 	rm -f examples/*.csv
 	rm -f examples/*.png
 	rm -f examples/*.pdf
-	deactivate
 
 .DEFAULT_GOAL := setup

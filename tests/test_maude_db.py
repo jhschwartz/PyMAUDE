@@ -36,7 +36,9 @@ class TestMaudeDatabase(unittest.TestCase):
         master_data = """MDR_REPORT_KEY|DATE_RECEIVED|EVENT_TYPE|MANUFACTURER_NAME|DATE_REPORT|DATE_OF_EVENT
 1234567|01/15/2020|Injury|Test Manufacturer|2020/01/10|2020-01-05
 1234568|02/20/2020|Death|Another Manufacturer|2020/02/15|2020-02-10
-1234569|03/10/2020|Malfunction|Test Manufacturer|2020/03/05|2020-03-01"""
+1234569|03/10/2020|Malfunction|Test Manufacturer|2020/03/05|2020-03-01
+1234570|04/15/2020|Death|Test Manufacturer|2020/04/10|2020-04-05
+1234571|05/20/2020|Injury|Another Manufacturer|2020/05/15|2020-05-10"""
 
         with open(f'{self.test_data_dir}/mdrfoithru2020.txt', 'w') as f:
             f.write(master_data)
@@ -46,15 +48,27 @@ class TestMaudeDatabase(unittest.TestCase):
         device_data = """MDR_REPORT_KEY|DEVICE_REPORT_PRODUCT_CODE|GENERIC_NAME|BRAND_NAME|DATE_RECEIVED|EXPIRATION_DATE_OF_DEVICE
 1234567|NIQ|Thrombectomy Device|DeviceX|2020/01/15|12/31/2025
 1234568|NIQ|Thrombectomy Device|DeviceY|01/20/2020|
-1234569|ABC|Other Device|DeviceZ|2020-01-25|2025-12-31"""
+1234569|ABC|Other Device|DeviceZ|2020-01-25|2025-12-31
+1234570|NIQ|Thrombectomy Device|DeviceW|2020/04/15|12/31/2025
+1234571|ABC|Other Device|DeviceV|2020/05/20|"""
 
         with open(f'{self.test_data_dir}/device2020.txt', 'w') as f:
             f.write(device_data)
 
         # Sample patient file (cumulative pattern: patientthru2020.txt) - using uppercase column names like real FDA data
-        patient_data = """MDR_REPORT_KEY|PATIENT_SEQUENCE_NUMBER|DATE_OF_EVENT
-1234567|1|2020-01-10
-1234568|1|2020-02-15"""
+        # SEQUENCE_NUMBER_OUTCOME contains semicolon-separated outcome codes (D=Death, H=Hospitalization, etc.)
+        # Test cases:
+        # 1234567: Single injury outcome (H=Hospitalization)
+        # 1234568: Single death outcome (D=Death)
+        # 1234569: No patient record (device malfunction with no patient impact)
+        # 1234570: Multiple outcomes including death (D;L = Death + Life threatening)
+        # 1234571: Multiple patients for same report, one with injury
+        patient_data = """MDR_REPORT_KEY|PATIENT_SEQUENCE_NUMBER|DATE_OF_EVENT|SEQUENCE_NUMBER_OUTCOME
+1234567|1|2020-01-10|H
+1234568|1|2020-02-15|D
+1234570|1|2020-04-10|D;L
+1234571|1|2020-05-15|S
+1234571|2|2020-05-15|"""
 
         with open(f'{self.test_data_dir}/patientthru2020.txt', 'w') as f:
             f.write(patient_data)
@@ -174,12 +188,12 @@ class TestMaudeDatabase(unittest.TestCase):
         db = MaudeDatabase(self.test_db, verbose=False)
         db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
         
-        # Check that data was added
+        # Check that data was added (now have 5 test records)
         df = db.query("SELECT COUNT(*) as count FROM master")
-        self.assertEqual(df['count'][0], 3)
-        
+        self.assertEqual(df['count'][0], 5)
+
         df = db.query("SELECT COUNT(*) as count FROM device")
-        self.assertEqual(df['count'][0], 3)
+        self.assertEqual(df['count'][0], 5)
         
         db.close()
     
@@ -227,8 +241,9 @@ class TestMaudeDatabase(unittest.TestCase):
         db.add_years(2020, tables=['master'], download=False, data_dir=self.test_data_dir, interactive=False)
 
         df = db.query("SELECT * FROM master WHERE EVENT_TYPE = 'Death'")
-        self.assertEqual(len(df), 1)
-        self.assertEqual(df.iloc[0]['MDR_REPORT_KEY'], 1234568)
+        self.assertEqual(len(df), 2)  # 1234568 and 1234570 both have EVENT_TYPE='Death'
+        self.assertIn(1234568, df['MDR_REPORT_KEY'].values)
+        self.assertIn(1234570, df['MDR_REPORT_KEY'].values)
 
         db.close()
 
@@ -241,7 +256,7 @@ class TestMaudeDatabase(unittest.TestCase):
             "SELECT * FROM master WHERE EVENT_TYPE = :type",
             params={'type': 'Injury'}
         )
-        self.assertEqual(len(df), 1)
+        self.assertEqual(len(df), 2)  # 1234567 and 1234571 have EVENT_TYPE='Injury'
 
         db.close()
     
@@ -251,65 +266,75 @@ class TestMaudeDatabase(unittest.TestCase):
         db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
         
         df = db.query_device(device_name='Thrombectomy')
-        self.assertEqual(len(df), 2)
-        
+        self.assertEqual(len(df), 3)  # 1234567, 1234568, 1234570
+
         db.close()
-    
+
     def test_query_device_by_product_code(self):
         """Test query_device with product code filter"""
         db = MaudeDatabase(self.test_db, verbose=False)
         db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
-        
+
         df = db.query_device(product_code='NIQ')
-        self.assertEqual(len(df), 2)
-        
+        self.assertEqual(len(df), 3)  # 1234567, 1234568, 1234570
+
         db.close()
-    
+
     def test_query_device_by_date_range(self):
         """Test query_device with date filters"""
         db = MaudeDatabase(self.test_db, verbose=False)
         db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
-        
+
         df = db.query_device(start_date='2020-02-01', end_date='2020-12-31')
-        self.assertEqual(len(df), 2)
-        
+        self.assertEqual(len(df), 4)  # 1234568 (02/20), 1234569 (03/10), 1234570 (04/15), 1234571 (05/20)
+
         db.close()
-    
+
     def test_query_device_multiple_filters(self):
         """Test query_device with multiple filters"""
         db = MaudeDatabase(self.test_db, verbose=False)
         db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
-        
+
         df = db.query_device(
             device_name='Thrombectomy',
             start_date='2020-02-01'
         )
-        self.assertEqual(len(df), 1)
+        self.assertEqual(len(df), 2)  # 1234568 (02/20), 1234570 (04/15)
         
         db.close()
     
     def test_get_trends_by_year(self):
-        """Test get_trends_by_year functionality"""
+        """Test get_trends_by_year functionality - requires patient table for outcome data"""
         db = MaudeDatabase(self.test_db, verbose=False)
-        db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
-        
+        db.add_years(2020, tables=['master', 'device', 'patient'], download=False, data_dir=self.test_data_dir, interactive=False)
+
         df = db.get_trends_by_year()
         self.assertEqual(len(df), 1)
         self.assertEqual(df.iloc[0]['year'], '2020')
-        self.assertEqual(df.iloc[0]['event_count'], 3)
-        self.assertEqual(df.iloc[0]['deaths'], 1)
-        self.assertEqual(df.iloc[0]['injuries'], 1)
-        
+        self.assertEqual(df.iloc[0]['event_count'], 5)  # 5 total reports
+
+        # Expected counts (using DISTINCT MDR_REPORT_KEY):
+        # Deaths: 1234568 (D), 1234570 (D;L) = 2 reports with deaths
+        # Injuries: 1234567 (H), 1234570 (D;L - also counted as injury due to L), 1234571 (S) = 3 reports with injuries
+        # No patient impact: 1234569 (no patient record) = 1 report
+        # Note: 1234570 is counted in BOTH deaths and injuries due to "D;L"
+        self.assertEqual(df.iloc[0]['deaths'], 2)
+        self.assertEqual(df.iloc[0]['injuries'], 3)
+        self.assertEqual(df.iloc[0]['no_patient_impact'], 1)
+
         db.close()
     
     def test_get_trends_by_product_code(self):
         """Test get_trends_by_year with product code filter"""
         db = MaudeDatabase(self.test_db, verbose=False)
-        db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
-        
+        db.add_years(2020, tables=['master', 'device', 'patient'], download=False, data_dir=self.test_data_dir, interactive=False)
+
         df = db.get_trends_by_year(product_code='NIQ')
-        self.assertEqual(df.iloc[0]['event_count'], 2)
-        
+        # NIQ reports: 1234567 (H), 1234568 (D), 1234570 (D;L) = 3 reports
+        self.assertEqual(df.iloc[0]['event_count'], 3)
+        self.assertEqual(df.iloc[0]['deaths'], 2)  # 1234568, 1234570
+        self.assertEqual(df.iloc[0]['injuries'], 2)  # 1234567, 1234570
+
         db.close()
     
     def test_get_narratives(self):
@@ -334,9 +359,9 @@ class TestMaudeDatabase(unittest.TestCase):
         db.export_subset(output_file, device_name='Thrombectomy')
         
         self.assertTrue(os.path.exists(output_file))
-        
+
         df = pd.read_csv(output_file)
-        self.assertEqual(len(df), 2)
+        self.assertEqual(len(df), 3)  # 3 Thrombectomy devices
         
         db.close()
     
@@ -404,7 +429,7 @@ class TestMaudeDatabase(unittest.TestCase):
         self.assertEqual(years, [2020])
 
         df = db.query("SELECT COUNT(*) as count FROM master")
-        self.assertEqual(df['count'][0], 3)  # Still only 3 records
+        self.assertEqual(df['count'][0], 5)  # Still only 5 records
 
         db.close()
 
@@ -467,7 +492,7 @@ class TestMaudeDatabase(unittest.TestCase):
 
         # With checksum tracking, should NOT have duplicate rows
         df = db.query("SELECT COUNT(*) as count FROM master")
-        self.assertEqual(df['count'][0], 3)  # 3 records (no duplicates)
+        self.assertEqual(df['count'][0], 5)  # 5 records (no duplicates)
 
         db.close()
     
@@ -556,7 +581,7 @@ class TestMaudeDatabase(unittest.TestCase):
             WHERE DATE_RECEIVED >= '2020-02-01'
         """)
 
-        self.assertEqual(result['count'][0], 2)  # Should match 2 records
+        self.assertEqual(result['count'][0], 4)  # 1234568 (02/20), 1234569 (03/10), 1234570 (04/15), 1234571 (05/20)
 
         db.close()
 
@@ -574,7 +599,7 @@ class TestMaudeDatabase(unittest.TestCase):
         """)
 
         self.assertEqual(result['year'].iloc[0], '2020')
-        self.assertEqual(result['count'].iloc[0], 3)
+        self.assertEqual(result['count'].iloc[0], 5)
 
         db.close()
 

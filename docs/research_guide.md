@@ -163,10 +163,10 @@ print(top_devices)
 results = db.query_device(device_name='defibrillator')
 
 # Count event types
-print(results['event_type'].value_counts())
+print(results['EVENT_TYPE'].value_counts())
 
-# Filter to serious events only
-serious = results[results['event_type'].str.contains('Death|Injury', na=False)]
+# Filter to serious events using FDA abbreviations (D=Death, IN=Injury)
+serious = results[results['EVENT_TYPE'].str.contains(r'\bD\b|\bIN\b', case=False, na=False, regex=True)]
 print(f"Serious events: {len(serious)}/{len(results)}")
 ```
 
@@ -398,8 +398,8 @@ events = db.query_device(device_name='insulin pump')
 # Analyze trends
 trends = db.get_trends_by_year(device_name='insulin pump')
 
-# Identify serious events
-serious = events[events['event_type'].str.contains('Death|Injury', na=False)]
+# Identify serious events using FDA abbreviations (D=Death, IN=Injury)
+serious = events[events['EVENT_TYPE'].str.contains(r'\bD\b|\bIN\b', case=False, na=False, regex=True)]
 
 # Examine narratives of serious events
 serious_keys = serious['MDR_REPORT_KEY'].head(20).tolist()
@@ -527,7 +527,7 @@ ORDER BY GENERIC_NAME;
 
 #### Step 4: Run Analysis Queries
 
-See [example_queries.sql](../examples/example_queries.sql) for ready-to-use queries:
+See [04_advanced_querying.ipynb](../notebooks/04_advanced_querying.ipynb) for ready-to-use queries:
 
 ```sql
 -- Count events by year
@@ -688,7 +688,7 @@ https://github.com/jhschwartz/maude_db
 ## Next Steps
 
 - **API Reference**: See [api_reference.md](api_reference.md) for complete method documentation
-- **Examples**: Check [`examples/`](../examples/) for working code
+- **Interactive Tutorials**: Check [`notebooks/`](../notebooks/) for Jupyter notebooks with working examples
 - **Troubleshooting**: See [troubleshooting.md](troubleshooting.md) for common issues
 
 **Questions?** Open an issue on GitHub or consult the FDA MAUDE documentation.

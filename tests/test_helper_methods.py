@@ -16,11 +16,14 @@ from maude_db import MaudeDatabase
 
 @pytest.fixture
 def sample_results_df():
-    """Create a sample DataFrame that mimics query_device() output."""
+    """Create a sample DataFrame that mimics query_device() output.
+
+    Uses FDA abbreviations: D=Death, IN=Injury, M=Malfunction
+    """
     return pd.DataFrame({
         'MDR_REPORT_KEY': [1001, 1002, 1003, 1004, 1005],
         'DATE_RECEIVED': ['2020-01-15', '2020-03-20', '2021-05-10', '2021-08-12', '2022-02-01'],
-        'EVENT_TYPE': ['Death', 'Injury', 'Malfunction', 'Injury;Death', 'Malfunction'],
+        'EVENT_TYPE': ['D', 'IN', 'M', 'IN', 'M'],  # FDA abbreviations
         'MANUFACTURER_D_NAME': ['Company A', 'Company B', 'Company A', 'Company A', 'Company C'],
         'GENERIC_NAME': ['Device X', 'Device Y', 'Device X', 'Device Z', 'Device Y'],
         'BRAND_NAME': ['Brand 1', 'Brand 2', 'Brand 1', 'Brand 3', 'Brand 2']

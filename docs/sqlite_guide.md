@@ -495,7 +495,7 @@ WHERE MDR_REPORT_KEY IN (1234567, 1234568, 1234569);
 
 ## Next Steps
 
-- Try the [example queries](../examples/example_queries.sql)
+- Try the [example queries in notebook 04](../notebooks/04_advanced_querying.ipynb)
 - Read the [Research Guide](research_guide.md) for analysis patterns
 - See the [API Reference](api_reference.md) if you want to use Python
 - Check [Troubleshooting](troubleshooting.md) for common issues

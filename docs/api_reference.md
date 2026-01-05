@@ -364,10 +364,10 @@ trends = db.get_trends_by_year(product_code='NIQ')
 
 # Display results
 print(trends)
-#    year  event_count  deaths  injuries  malfunctions
-# 0  2018         1245      12       345           888
-# 1  2019         1356      15       389           952
-# 2  2020         1423      18       412          1003
+#    year  event_count  deaths  injuries  no_patient_impact
+# 0  2018         1245      12       345                 888
+# 1  2019         1356      15       389                 952
+# 2  2020         1423      18       412                1003
 ```
 
 **Notes**:
@@ -435,8 +435,8 @@ for idx, row in narratives.iterrows():
 # 1. Query devices
 results = db.query_device(device_name='pacemaker', start_date='2020-01-01')
 
-# 2. Filter to serious events
-serious = results[results['EVENT_TYPE'].str.contains('Death|Injury', na=False)]
+# 2. Filter to serious events using FDA abbreviations (D=Death, IN=Injury)
+serious = results[results['EVENT_TYPE'].str.contains(r'\bD\b|\bIN\b', case=False, na=False, regex=True)]
 
 # 3. Get narratives
 keys = serious['MDR_REPORT_KEY'].tolist()

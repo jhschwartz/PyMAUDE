@@ -374,8 +374,8 @@ If you prefer to work with SQLite tools (DB Browser, DBeaver, etc.) instead of P
    - Start querying!
 
 4. **Try example queries:**
-   - See [example_queries.sql](../examples/example_queries.sql)
-   - Copy queries into your SQLite tool's SQL editor
+   - See [04_advanced_querying.ipynb](../notebooks/04_advanced_querying.ipynb)
+   - Copy SQL queries from the notebook into your SQLite tool's SQL editor
    - Modify search terms for your research
 
 ### Complete SQLite Guide
@@ -400,12 +400,12 @@ The database file (`.db`) works with both approaches interchangeably.
 
 Now that you can download data and run basic queries, you're ready for:
 
-### More Examples
+### Interactive Tutorials
 
-Check out the [`examples/`](../examples/) directory:
-- [`basic_usage.py`](../examples/basic_usage.py) - Similar to this tutorial
-- [`analyze_device_trends.py`](../examples/analyze_device_trends.py) - Trend analysis with visualization
-- [`example_queries.sql`](../examples/example_queries.sql) - Ready-to-use SQL queries
+Check out the [`notebooks/`](../notebooks/) directory for interactive Jupyter notebooks:
+- [`02_getting_started.ipynb`](../notebooks/02_getting_started.ipynb) - Similar to this tutorial
+- [`03_trend_analysis_visualization.ipynb`](../notebooks/03_trend_analysis_visualization.ipynb) - Trend analysis with visualization
+- [`04_advanced_querying.ipynb`](../notebooks/04_advanced_querying.ipynb) - Ready-to-use SQL queries
 
 ### Advanced Features
 

@@ -3,6 +3,7 @@
 A Python library for downloading, querying, and analyzing FDA MAUDE (Manufacturer and User Facility Device Experience) adverse event data. Designed for medical device safety research and regulatory surveillance.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/yourusername/maude_db/main?filepath=notebooks%2F01_quickstart_binder.ipynb)
 [![FDA Site Compatibility](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/jhschwartz/2be19fadf256e3b5de290996b99b1f19/raw/maude_db_fda_compatibility.json)](https://github.com/jhschwartz/maude_db/actions/workflows/fda_compatibility_check.yml)
 <!-- Replace the badge above with your actual dynamic badge once set up - see docs/github_badge_setup.md -->
 
@@ -28,9 +29,23 @@ For background on the MAUDE database, see [docs/maude_overview.md](docs/maude_ov
 
 ## Installation
 
+## Try It Now (No Installation)
+
+**🚀 Interactive Demo**: Click the Binder badge above to try maude_db in your browser! Uses 2005 data for a quick (~1 minute) introduction.
+
 ## Quick Start
 
-### Option 1: For Non-Programmers (SQLite Tools Only)
+### Option 1: Interactive Notebooks (Recommended)
+
+**Best way to learn!** Explore the [notebooks/](notebooks/) directory for interactive examples:
+
+- **[01_quickstart_binder.ipynb](notebooks/01_quickstart_binder.ipynb)** - 5-minute intro (works in Binder)
+- **[02_getting_started.ipynb](notebooks/02_getting_started.ipynb)** - Complete local setup guide
+- **[03_trend_analysis_visualization.ipynb](notebooks/03_trend_analysis_visualization.ipynb)** - Your first real analysis
+
+See [notebooks/README.md](notebooks/README.md) for complete guide with beginner/intermediate/advanced tracks.
+
+### Option 2: For Non-Programmers (SQLite Tools Only)
 
 If you want to use SQLite tools (DB Browser, DBeaver, etc.) without writing Python code:
 
@@ -49,9 +64,8 @@ If you want to use SQLite tools (DB Browser, DBeaver, etc.) without writing Pyth
 **Next steps:**
 - Download DB Browser for SQLite: [https://sqlitebrowser.org/](https://sqlitebrowser.org/)
 - See [docs/sqlite_guide.md](docs/sqlite_guide.md) for usage guide
-- Try [examples/example_queries.sql](examples/example_queries.sql) for ready-to-use queries
 
-### Option 2: Python API
+### Option 3: Python API
 
 ```python
 from maude_db import MaudeDatabase
@@ -118,9 +132,13 @@ pip install git+https://github.com/yourusername/maude_db.git
 
 ## Documentation
 
+### Interactive Tutorials
+- **[Jupyter Notebooks](notebooks/)** - Complete learning path from beginner to advanced
+- **[Notebooks README](notebooks/README.md)** - Guide to all 8 interactive tutorials
+
 ### For SQLite Tool Users
 - **[SQLite Usage Guide](docs/sqlite_guide.md)** - Complete guide for using MAUDE databases with DB Browser, DBeaver, etc.
-- **[Example SQL Queries](examples/example_queries.sql)** - Ready-to-use SQL queries for common research tasks
+- **[Advanced SQL Examples](notebooks/04_advanced_querying.ipynb)** - Complex SQL queries in notebook format
 
 ### For Python Users
 - **[Getting Started Guide](docs/getting_started.md)** - Step-by-step tutorial for first-time users
@@ -134,22 +152,6 @@ pip install git+https://github.com/yourusername/maude_db.git
 ### Archiving & Maintenance
 - **[Archiving Guide](archive_tools/ARCHIVING_GUIDE.md)** - Complete guide for creating reproducible archives
 - **[GitHub Badge Setup](docs/github_badge_setup.md)** - Set up automatic FDA compatibility monitoring
-
-## Examples
-
-The [`examples/`](examples/) directory contains working examples:
-
-- **[basic_usage.py](examples/basic_usage.py)** - Minimal example showing core functionality (1998 data, ~3MB download)
-- **[analyze_device_trends.py](examples/analyze_device_trends.py)** - Comprehensive example with trend analysis and visualization (2018-2020 data)
-
-Run an example:
-
-```bash
-cd examples
-python basic_usage.py
-```
-
-See [examples/README.md](examples/README.md) for more details and customization options.
 
 ## Testing
 

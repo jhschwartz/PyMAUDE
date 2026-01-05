@@ -1136,14 +1136,19 @@ class MaudeDatabase:
 
     def get_trends_by_year(self, product_code=None, device_name=None):
         """
-        Get yearly event counts and breakdown by event type.
+        Get yearly event counts and breakdown by patient outcomes.
+
+        Uses patient_outcome table for accurate death/injury counts.
 
         Args:
             product_code: Optional filter by product code
             device_name: Optional filter by device name
 
         Returns:
-            DataFrame with columns: year, event_count, deaths, injuries, malfunctions
+            DataFrame with columns: year, event_count, deaths, injuries, no_patient_impact
+            - deaths: Reports with OUTCOME_CODE = 'D'
+            - injuries: Reports with serious outcomes (L, H, S, C, R, O)
+            - no_patient_impact: Reports with no patient_outcome record
         """
         condition = "1=1"
         params = {}
@@ -1155,15 +1160,29 @@ class MaudeDatabase:
             condition = "(d.GENERIC_NAME LIKE :name OR d.BRAND_NAME LIKE :name)"
             params['name'] = f'%{device_name}%'
 
+        # Count patient outcomes from patient table (SEQUENCE_NUMBER_OUTCOME contains semicolon-separated codes)
+        # Outcome codes: D=Death, L=Life threatening, H=Hospitalization, S=Disability, C=Congenital Anomaly, R=Required Intervention, O=Other
+        # Multiple outcomes can exist per patient, separated by semicolons with spaces (e.g., "D; L")
+        # Match codes at start, middle, or end of semicolon-separated list
+        # Events without patient records are typically device malfunctions without patient impact
         sql = f"""
             SELECT
                 strftime('%Y', m.DATE_RECEIVED) as year,
-                COUNT(*) as event_count,
-                SUM(CASE WHEN m.EVENT_TYPE LIKE '%Death%' THEN 1 ELSE 0 END) as deaths,
-                SUM(CASE WHEN m.EVENT_TYPE LIKE '%Injury%' THEN 1 ELSE 0 END) as injuries,
-                SUM(CASE WHEN m.EVENT_TYPE LIKE '%Malfunction%' THEN 1 ELSE 0 END) as malfunctions
+                COUNT(DISTINCT m.MDR_REPORT_KEY) as event_count,
+                COUNT(DISTINCT CASE WHEN p.SEQUENCE_NUMBER_OUTCOME LIKE '%D%' THEN m.MDR_REPORT_KEY END) as deaths,
+                COUNT(DISTINCT CASE WHEN (p.SEQUENCE_NUMBER_OUTCOME LIKE '%L%'
+                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%H%'
+                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%S%'
+                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%C%'
+                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%R%'
+                                       OR p.SEQUENCE_NUMBER_OUTCOME = 'O'
+                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE 'O; %'
+                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%; O'
+                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%; O; %') THEN m.MDR_REPORT_KEY END) as injuries,
+                COUNT(DISTINCT CASE WHEN p.MDR_REPORT_KEY IS NULL THEN m.MDR_REPORT_KEY END) as no_patient_impact
             FROM master m
             JOIN device d ON m.MDR_REPORT_KEY = d.MDR_REPORT_KEY
+            LEFT JOIN patient p ON m.MDR_REPORT_KEY = p.MDR_REPORT_KEY
             WHERE {condition}
             GROUP BY year
             ORDER BY year
@@ -1259,15 +1278,29 @@ class MaudeDatabase:
             raise ValueError(f"DataFrame missing required columns: {missing}")
 
         # Create a temporary copy with year extracted
+        # Handle duplicate columns (e.g., when joining master and device tables)
         df = results_df.copy()
-        df['year'] = pd.to_datetime(df['DATE_RECEIVED']).dt.year
+        # Get the first DATE_RECEIVED column if there are duplicates
+        date_received = df['DATE_RECEIVED']
+        if isinstance(date_received, pd.DataFrame):
+            # Multiple DATE_RECEIVED columns - use the first one (from master table)
+            date_received = date_received.iloc[:, 0]
+        df['year'] = pd.to_datetime(date_received).dt.year
+
+        # Get EVENT_TYPE column, handling duplicates if they exist
+        event_type_col = df['EVENT_TYPE']
+        if isinstance(event_type_col, pd.DataFrame):
+            # Multiple EVENT_TYPE columns - use the first one (from master table)
+            event_type_col = event_type_col.iloc[:, 0]
+        df['event_type_clean'] = event_type_col
 
         # Aggregate by year
+        # FDA uses abbreviations: D=Death, IN=Injury, M=Malfunction
         trends = df.groupby('year').agg(
             event_count=('year', 'size'),
-            deaths=('EVENT_TYPE', lambda x: x.str.contains('Death', case=False, na=False).sum()),
-            injuries=('EVENT_TYPE', lambda x: x.str.contains('Injury', case=False, na=False).sum()),
-            malfunctions=('EVENT_TYPE', lambda x: x.str.contains('Malfunction', case=False, na=False).sum())
+            deaths=('event_type_clean', lambda x: x.str.contains(r'\bD\b|Death', case=False, na=False, regex=True).sum()),
+            injuries=('event_type_clean', lambda x: x.str.contains(r'\bIN\b|Injury', case=False, na=False, regex=True).sum()),
+            malfunctions=('event_type_clean', lambda x: x.str.contains(r'\bM\b|Malfunction', case=False, na=False, regex=True).sum())
         ).reset_index()
 
         return trends
@@ -1302,11 +1335,19 @@ class MaudeDatabase:
             raise ValueError("DataFrame must contain 'EVENT_TYPE' column")
 
         total = len(results_df)
-        event_type = results_df['EVENT_TYPE'].fillna('')
 
-        deaths = event_type.str.contains('Death', case=False).sum()
-        injuries = event_type.str.contains('Injury', case=False).sum()
-        malfunctions = event_type.str.contains('Malfunction', case=False).sum()
+        # Handle duplicate EVENT_TYPE columns (e.g., when joining master and device tables)
+        event_type = results_df['EVENT_TYPE']
+        if isinstance(event_type, pd.DataFrame):
+            # Multiple EVENT_TYPE columns - use the first one (from master table)
+            event_type = event_type.iloc[:, 0]
+        event_type = event_type.fillna('')
+
+        # FDA uses abbreviations: D=Death, IN=Injury, M=Malfunction
+        # Also check for full words for backwards compatibility
+        deaths = event_type.str.contains(r'\bD\b|Death', case=False, regex=True).sum()
+        injuries = event_type.str.contains(r'\bIN\b|Injury', case=False, regex=True).sum()
+        malfunctions = event_type.str.contains(r'\bM\b|Malfunction', case=False, regex=True).sum()
 
         # Events can have multiple types, so other is approximate
         other = total - max(deaths, injuries, malfunctions)

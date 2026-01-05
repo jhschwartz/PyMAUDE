@@ -33,8 +33,14 @@ htmlcov/
 # MAUDE data files
 maude_data/*.zip
 maude_data/*.txt
-examples/*.db
-examples/*.csv
-examples/*.png
-examples/*.pdf
-examples/maude_data/
+
+# Jupyter notebooks
+notebooks/.ipynb_checkpoints/
+notebooks/data/
+notebooks/*.db
+notebooks/**/*.db
+notebooks/maude_data/
+notebooks/**/*.zip
+notebooks/**/*.txt
+notebooks/**/*.png
+notebooks/**/*.csv

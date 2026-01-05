@@ -5,14 +5,18 @@
   - What do they each have? are the master and patient tables even necessary? would be nice to not use them. it's possible they each contain minimal data already present elsewhere for convinience.
 
 
-- **why so few rows in master for some years**
-  - check again...?
+- **noticed in notebooks**
+  - why are deaths, malfunctions, etc. always zero? 
+  - notebook 03 --> is it plotting cumulatively by year? because it goes up each year in prelim analysis
+  - need to confirm each notebook runs, and commit the notebook after all output is shown
 
 
-- **cache zip**
-  - right now cached files used are zip
-  - should it cache txt? if not, then delete the txt after use.
+--> should integration tests spot check actual data from fda?? 
 
+
+
+--> "pragma" optimizations to db building - claude: "The PRAGMA optimizations are literally just 5-6 lines added at the start of the bulk loading function that tell SQLite "optimize for speed during this import, we'll handle durability ourselves". It's reversible and safe.
+"
 
 ## Future Enhancements
 

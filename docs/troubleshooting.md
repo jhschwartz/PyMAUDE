@@ -378,11 +378,11 @@ filtered = all_data[...]  # Then filters in Python
 ```python
 # Make explicit copy
 results = db.query_device(device_name='catheter')
-subset = results[results['EVENT_TYPE'] == 'Death'].copy()  # .copy() here
+subset = results[results['EVENT_TYPE'] == 'D'].copy()  # .copy() here (D = Death)
 subset['new_column'] = 'value'  # No warning
 
 # Or modify original
-results.loc[results['EVENT_TYPE'] == 'Death', 'new_column'] = 'value'
+results.loc[results['EVENT_TYPE'] == 'D', 'new_column'] = 'value'
 ```
 
 ---
