@@ -594,8 +594,8 @@ class MaudeDatabase:
 
                 # Check if this file exists on FDA server
                 if self._check_url_exists(url):
-                    if offset > 1:
-                        # Always warn when falling back, regardless of verbose setting
+                    if offset > 1 and self.verbose:
+                        # Warn when falling back if verbose mode is enabled
                         expected_filename = f"{file_prefix}thru{expected_year}.zip"
                         print(f'  WARNING: Expected file {expected_filename} not available.')
                         print(f'  Using {filename} instead (latest available cumulative file).')

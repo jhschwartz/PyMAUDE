@@ -37,15 +37,8 @@ jobs:
       id: compatibility_check
       continue-on-error: true
       run: |
-        set +e
-        python archive_tools/check_fda_compatibility.py --json > compatibility_results.json 2> compatibility_errors.log
-        exit_code=$?
-        if [ $exit_code -ne 0 ] && [ ! -s compatibility_results.json ]; then
-          echo '{"compatible": false, "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'", "errors": ["Script failed with exit code '$exit_code'"], "warnings": [], "checks": {}}' > compatibility_results.json
-          echo "Script stderr output:"
-          cat compatibility_errors.log
-        fi
-        echo "exit_code=$exit_code" >> $GITHUB_OUTPUT
+        python archive_tools/check_fda_compatibility.py --json > compatibility_results.json
+        echo "exit_code=$?" >> $GITHUB_OUTPUT
 
     - name: Parse results
       id: parse_results
