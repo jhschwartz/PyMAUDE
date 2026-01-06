@@ -6,6 +6,7 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 import sys
+from unittest.mock import patch, Mock
 
 from maude_db import MaudeDatabase
 from maude_db.processors import _identify_date_columns, _parse_dates_flexible
@@ -605,44 +606,68 @@ class TestMaudeDatabase(unittest.TestCase):
 
     # ========== URL Existence Check Tests ==========
 
-    def test_check_url_exists_valid_url(self):
+    @patch('requests.head')
+    def test_check_url_exists_valid_url(self, mock_head):
         """Test that _check_url_exists returns True for valid URLs"""
-        db = MaudeDatabase(self.test_db, verbose=False)
+        # Mock a successful response
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_head.return_value = mock_response
 
-        # Test with a known valid URL (FDA website home page)
-        # Note: This requires internet connection and may be slow
-        # In a production test suite, you'd want to mock this
+        db = MaudeDatabase(self.test_db, verbose=False)
         result = db._check_url_exists('https://www.fda.gov/')
         self.assertTrue(result)
 
+        # Verify the request was made with correct parameters
+        mock_head.assert_called_once_with(
+            'https://www.fda.gov/',
+            headers={'User-Agent': 'Mozilla/5.0'},
+            timeout=5,
+            allow_redirects=True
+        )
+
         db.close()
 
-    def test_check_url_exists_invalid_url(self):
+    @patch('requests.head')
+    def test_check_url_exists_invalid_url(self, mock_head):
         """Test that _check_url_exists returns False for invalid URLs"""
-        db = MaudeDatabase(self.test_db, verbose=False)
+        # Mock a 404 response
+        mock_response = Mock()
+        mock_response.status_code = 404
+        mock_head.return_value = mock_response
 
-        # Test with a URL that definitely doesn't exist
+        db = MaudeDatabase(self.test_db, verbose=False)
         result = db._check_url_exists('https://www.fda.gov/nonexistent-file-12345.zip')
         self.assertFalse(result)
 
         db.close()
 
-    def test_check_url_exists_handles_redirects(self):
+    @patch('requests.head')
+    def test_check_url_exists_handles_redirects(self, mock_head):
         """Test that _check_url_exists follows redirects correctly"""
-        db = MaudeDatabase(self.test_db, verbose=False)
+        # Mock a successful response after redirect (allow_redirects=True means final response)
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_head.return_value = mock_response
 
-        # HTTP -> HTTPS redirect should work
-        # Note: This test requires internet and may be fragile
+        db = MaudeDatabase(self.test_db, verbose=False)
         result = db._check_url_exists('http://www.fda.gov/')
         self.assertTrue(result)
 
+        # Verify allow_redirects was set to True
+        call_kwargs = mock_head.call_args[1]
+        self.assertTrue(call_kwargs['allow_redirects'])
+
         db.close()
 
-    def test_check_url_exists_handles_timeout(self):
+    @patch('requests.head')
+    def test_check_url_exists_handles_timeout(self, mock_head):
         """Test that _check_url_exists handles timeouts gracefully"""
-        db = MaudeDatabase(self.test_db, verbose=False)
+        # Mock a timeout exception
+        import requests
+        mock_head.side_effect = requests.exceptions.Timeout()
 
-        # Use an IP that will timeout (non-routable address)
+        db = MaudeDatabase(self.test_db, verbose=False)
         result = db._check_url_exists('http://192.0.2.1/test.zip')
         self.assertFalse(result)
 

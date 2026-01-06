@@ -3,9 +3,10 @@
 A Python library for downloading, querying, and analyzing FDA MAUDE (Manufacturer and User Facility Device Experience) adverse event data. Designed for medical device safety research and regulatory surveillance.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/yourusername/maude_db/main?filepath=notebooks%2F01_quickstart_binder.ipynb)
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/jhschwartz/maude_db/main?filepath=notebooks%2F01_quickstart_binder.ipynb)
 [![FDA Site Compatibility](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/jhschwartz/2be19fadf256e3b5de290996b99b1f19/raw/maude_db_fda_compatibility.json)](https://github.com/jhschwartz/maude_db/actions/workflows/fda_compatibility_check.yml)
-<!-- Replace the badge above with your actual dynamic badge once set up - see docs/github_badge_setup.md -->
+[![Tests](https://github.com/jhschwartz/maude_db/actions/workflows/tests.yml/badge.svg)](https://github.com/jhschwartz/maude_db/actions/workflows/tests.yml)
+
 
 ## What is maude_db?
 

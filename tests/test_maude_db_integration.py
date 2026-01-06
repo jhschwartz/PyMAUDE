@@ -296,6 +296,39 @@ class TestMaudeDatabaseIntegration(unittest.TestCase):
 
         db.close()
 
+    def test_check_url_exists_valid_url(self):
+        """Integration test: verify _check_url_exists works with real FDA website"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # Test with FDA website home page (should exist)
+        result = db._check_url_exists('https://www.fda.gov/')
+        self.assertTrue(result, "FDA homepage should be accessible")
+
+        db.close()
+        print("✓ Successfully verified FDA website is accessible")
+
+    def test_check_url_exists_invalid_url(self):
+        """Integration test: verify _check_url_exists returns False for 404"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # Test with a URL that definitely doesn't exist
+        result = db._check_url_exists('https://www.fda.gov/nonexistent-file-12345.zip')
+        self.assertFalse(result, "Nonexistent file should return False")
+
+        db.close()
+        print("✓ Successfully detected nonexistent URL")
+
+    def test_check_url_exists_handles_redirects(self):
+        """Integration test: verify _check_url_exists follows HTTP->HTTPS redirects"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # HTTP -> HTTPS redirect should work
+        result = db._check_url_exists('http://www.fda.gov/')
+        self.assertTrue(result, "HTTP->HTTPS redirect should work")
+
+        db.close()
+        print("✓ Successfully followed redirect from HTTP to HTTPS")
+
 
 if __name__ == '__main__':
     # Run only integration tests
