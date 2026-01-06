@@ -1094,6 +1094,9 @@ class MaudeDatabase:
         """
         Query device events with optional filters.
 
+        Returns one row per unique event (MDR_REPORT_KEY). When an event involves
+        multiple devices, only the first device record is included.
+
         Args:
             device_name: Filter by generic_name or brand_name (partial match)
             product_code: Filter by exact product code
@@ -1101,7 +1104,9 @@ class MaudeDatabase:
             end_date: Only events on/before this date
 
         Returns:
-            DataFrame with matching records from master + device tables
+            DataFrame with matching records from master + device tables.
+            One row per event (unique MDR_REPORT_KEY), even if multiple devices
+            are associated with the event.
         """
         conditions = []
         params = {}
@@ -1119,16 +1124,19 @@ class MaudeDatabase:
             params['start'] = start_date
 
         if end_date:
-            conditions.append("m.DATE_RECEIVED <= :end")
+            conditions.append("m.DATE_RECEIVED < date(:end, '+1 day')")
             params['end'] = end_date
 
         where = " AND ".join(conditions) if conditions else "1=1"
 
+        # First get all matching rows, then deduplicate by keeping first device per event
+        # This ensures one row per event even when multiple devices are involved
         sql = f"""
-            SELECT m.*, d.*
+            SELECT DISTINCT m.MDR_REPORT_KEY, m.*, d.*
             FROM master m
             JOIN device d ON m.MDR_REPORT_KEY = d.MDR_REPORT_KEY
             WHERE {where}
+            GROUP BY m.MDR_REPORT_KEY
         """
 
         return pd.read_sql_query(sql, self.conn, params=params)
@@ -1145,10 +1153,10 @@ class MaudeDatabase:
             device_name: Optional filter by device name
 
         Returns:
-            DataFrame with columns: year, event_count, deaths, injuries, no_patient_impact
+            DataFrame with columns: year, event_count, deaths, injuries, no_patient_record
             - deaths: Reports with OUTCOME_CODE = 'D'
             - injuries: Reports with serious outcomes (L, H, S, C, R, O)
-            - no_patient_impact: Reports with no patient_outcome record
+            - no_patient_record: Reports with no patient table record
         """
         condition = "1=1"
         params = {}
@@ -1164,7 +1172,7 @@ class MaudeDatabase:
         # Outcome codes: D=Death, L=Life threatening, H=Hospitalization, S=Disability, C=Congenital Anomaly, R=Required Intervention, O=Other
         # Multiple outcomes can exist per patient, separated by semicolons with spaces (e.g., "D; L")
         # Match codes at start, middle, or end of semicolon-separated list
-        # Events without patient records are typically device malfunctions without patient impact
+        # Events without patient records may still be deaths/injuries (incomplete data entry)
         sql = f"""
             SELECT
                 strftime('%Y', m.DATE_RECEIVED) as year,
@@ -1179,7 +1187,7 @@ class MaudeDatabase:
                                        OR p.SEQUENCE_NUMBER_OUTCOME LIKE 'O; %'
                                        OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%; O'
                                        OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%; O; %') THEN m.MDR_REPORT_KEY END) as injuries,
-                COUNT(DISTINCT CASE WHEN p.MDR_REPORT_KEY IS NULL THEN m.MDR_REPORT_KEY END) as no_patient_impact
+                COUNT(DISTINCT CASE WHEN p.MDR_REPORT_KEY IS NULL THEN m.MDR_REPORT_KEY END) as no_patient_record
             FROM master m
             JOIN device d ON m.MDR_REPORT_KEY = d.MDR_REPORT_KEY
             LEFT JOIN patient p ON m.MDR_REPORT_KEY = p.MDR_REPORT_KEY
@@ -1311,10 +1319,11 @@ class MaudeDatabase:
         Get event type breakdown for a query result DataFrame.
 
         Provides summary statistics of event types (deaths, injuries, malfunctions)
-        in the provided DataFrame.
+        in the provided DataFrame. Counts unique events (MDR_REPORT_KEY) to handle
+        cases where multiple devices may be associated with a single event.
 
         Args:
-            results_df: DataFrame with EVENT_TYPE column
+            results_df: DataFrame with EVENT_TYPE and MDR_REPORT_KEY columns
                        (typically from query_device())
 
         Returns:
@@ -1334,14 +1343,32 @@ class MaudeDatabase:
         if 'EVENT_TYPE' not in results_df.columns:
             raise ValueError("DataFrame must contain 'EVENT_TYPE' column")
 
-        total = len(results_df)
+        # Count unique events (MDR_REPORT_KEY) to avoid double-counting multi-device events
+        if 'MDR_REPORT_KEY' in results_df.columns:
+            # Get unique MDR_REPORT_KEYs with their EVENT_TYPE
+            mdr_key = results_df['MDR_REPORT_KEY']
+            if isinstance(mdr_key, pd.DataFrame):
+                mdr_key = mdr_key.iloc[:, 0]
 
-        # Handle duplicate EVENT_TYPE columns (e.g., when joining master and device tables)
-        event_type = results_df['EVENT_TYPE']
-        if isinstance(event_type, pd.DataFrame):
-            # Multiple EVENT_TYPE columns - use the first one (from master table)
-            event_type = event_type.iloc[:, 0]
-        event_type = event_type.fillna('')
+            event_type = results_df['EVENT_TYPE']
+            if isinstance(event_type, pd.DataFrame):
+                event_type = event_type.iloc[:, 0]
+
+            # Create a deduplicated DataFrame
+            unique_df = pd.DataFrame({
+                'MDR_REPORT_KEY': mdr_key,
+                'EVENT_TYPE': event_type
+            }).drop_duplicates(subset=['MDR_REPORT_KEY'])
+
+            total = len(unique_df)
+            event_type = unique_df['EVENT_TYPE'].fillna('')
+        else:
+            # Fallback: count all rows if MDR_REPORT_KEY not available
+            total = len(results_df)
+            event_type = results_df['EVENT_TYPE']
+            if isinstance(event_type, pd.DataFrame):
+                event_type = event_type.iloc[:, 0]
+            event_type = event_type.fillna('')
 
         # FDA uses abbreviations: D=Death, IN=Injury, M=Malfunction
         # Also check for full words for backwards compatibility

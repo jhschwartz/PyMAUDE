@@ -317,11 +317,11 @@ class TestMaudeDatabase(unittest.TestCase):
         # Expected counts (using DISTINCT MDR_REPORT_KEY):
         # Deaths: 1234568 (D), 1234570 (D;L) = 2 reports with deaths
         # Injuries: 1234567 (H), 1234570 (D;L - also counted as injury due to L), 1234571 (S) = 3 reports with injuries
-        # No patient impact: 1234569 (no patient record) = 1 report
+        # No patient record: 1234569 (no patient record) = 1 report
         # Note: 1234570 is counted in BOTH deaths and injuries due to "D;L"
         self.assertEqual(df.iloc[0]['deaths'], 2)
         self.assertEqual(df.iloc[0]['injuries'], 3)
-        self.assertEqual(df.iloc[0]['no_patient_impact'], 1)
+        self.assertEqual(df.iloc[0]['no_patient_record'], 1)
 
         db.close()
     
