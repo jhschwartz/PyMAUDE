@@ -110,6 +110,12 @@ def process_file(filepath, table_name, conn, chunk_size, verbose=False):
         chunk_size: Number of rows to process at once
         verbose: Whether to print progress messages
     """
+    # Set PRAGMA optimizations for bulk loading
+    conn.execute("PRAGMA synchronous = OFF")
+    conn.execute("PRAGMA journal_mode = MEMORY")
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA cache_size = -64000")  # 64MB cache
+
     total_rows = 0
     date_columns = None
 
@@ -140,6 +146,11 @@ def process_file(filepath, table_name, conn, chunk_size, verbose=False):
         if verbose and i % 10 == 0 and i > 0:
             print(f'    Processed {total_rows:,} rows...')
 
+    # Restore default PRAGMA settings
+    conn.execute("PRAGMA synchronous = FULL")
+    conn.execute("PRAGMA journal_mode = DELETE")
+    conn.commit()
+
     if verbose:
         print(f'    Total: {total_rows:,} rows')
 
@@ -160,13 +171,19 @@ def process_cumulative_file(filepath, table_name, year, metadata, conn, chunk_si
         chunk_size: Number of rows to process at once
         verbose: Whether to print progress messages
     """
-    total_rows = 0
-    filtered_rows = 0
-    date_columns = None
-
     # Fallback to regular processing if no date column defined
     if 'date_column' not in metadata:
         return process_file(filepath, table_name, conn, chunk_size, verbose)
+
+    # Set PRAGMA optimizations for bulk loading
+    conn.execute("PRAGMA synchronous = OFF")
+    conn.execute("PRAGMA journal_mode = MEMORY")
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA cache_size = -64000")  # 64MB cache
+
+    total_rows = 0
+    filtered_rows = 0
+    date_columns = None
 
     date_col = metadata['date_column']
 
@@ -214,6 +231,11 @@ def process_cumulative_file(filepath, table_name, year, metadata, conn, chunk_si
         if verbose and i % 10 == 0 and i > 0:
             print(f'    Scanned {total_rows:,} rows, kept {filtered_rows:,}...')
 
+    # Restore default PRAGMA settings
+    conn.execute("PRAGMA synchronous = FULL")
+    conn.execute("PRAGMA journal_mode = DELETE")
+    conn.commit()
+
     if verbose:
         print(f'    Total: Scanned {total_rows:,} rows, loaded {filtered_rows:,} rows for year {year}')
 
@@ -237,14 +259,20 @@ def process_cumulative_file_batch(filepath, table_name, years_list, metadata, co
     if not years_list:
         return
 
+    # Fallback to regular processing if no date column defined
+    if 'date_column' not in metadata:
+        return process_file(filepath, table_name, conn, chunk_size, verbose)
+
+    # Set PRAGMA optimizations for bulk loading
+    conn.execute("PRAGMA synchronous = OFF")
+    conn.execute("PRAGMA journal_mode = MEMORY")
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA cache_size = -64000")  # 64MB cache
+
     total_rows = 0
     year_counts = {year: 0 for year in years_list}
     years_set = set(years_list)
     date_columns = None
-
-    # Fallback to regular processing if no date column defined
-    if 'date_column' not in metadata:
-        return process_file(filepath, table_name, conn, chunk_size, verbose)
 
     date_col = metadata['date_column']
 
@@ -300,6 +328,11 @@ def process_cumulative_file_batch(filepath, table_name, years_list, metadata, co
         if verbose and i % 10 == 0 and i > 0:
             total_kept = sum(year_counts.values())
             print(f'    Scanned {total_rows:,} rows, kept {total_kept:,}...')
+
+    # Restore default PRAGMA settings
+    conn.execute("PRAGMA synchronous = FULL")
+    conn.execute("PRAGMA journal_mode = DELETE")
+    conn.commit()
 
     if verbose:
         total_kept = sum(year_counts.values())
