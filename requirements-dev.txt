@@ -1,2 +1,16 @@
-pytest>=9.0.2
-matplotlib>=1.17
+# This file is AUTO-GENERATED from pyproject.toml
+# DO NOT EDIT MANUALLY
+#
+# pyproject.toml is the single source of truth for dependencies.
+# This file is provided for backwards compatibility only.
+#
+# To install dev dependencies, use:
+#   pip install -e ".[dev]"
+#
+# To regenerate this file:
+#   pip-compile --extra dev pyproject.toml --output-file requirements-dev.txt
+#
+# Or manually sync with [project.optional-dependencies.dev] in pyproject.toml
+
+pytest>=7.0
+pytest-cov

@@ -8,11 +8,12 @@ setup:
 	venv/bin/pip install -e .
 
 install: setup
-	venv/bin/pip install -r requirements.txt
+	# Install package with dependencies from pyproject.toml
+	venv/bin/pip install -e .
 
 dev: setup
-	venv/bin/pip install -r requirements.txt
-	venv/bin/pip install -r requirements-dev.txt
+	# Install package with dev dependencies from pyproject.toml
+	venv/bin/pip install -e ".[dev]"
 
 test: setup
 	venv/bin/python -m pytest

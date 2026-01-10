@@ -76,7 +76,7 @@ echo "Checking dependencies..."
 
 if ! python3 -c "import pandas" 2>/dev/null; then
     echo "Installing dependencies..."
-    pip install -q -r requirements.txt
+    pip install -q -e .
     echo -e "${GREEN}✓${NC} Dependencies installed"
 else
     echo -e "${GREEN}✓${NC} Dependencies already installed"

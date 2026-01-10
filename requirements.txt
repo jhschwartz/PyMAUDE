@@ -1,2 +1,18 @@
-pandas>=2.0.0
-requests>=2.31.0
+# This file is AUTO-GENERATED from pyproject.toml
+# DO NOT EDIT MANUALLY
+#
+# pyproject.toml is the single source of truth for dependencies.
+# This file is provided for backwards compatibility only.
+#
+# To install dependencies, use:
+#   pip install -e .
+#
+# To regenerate this file:
+#   pip-compile pyproject.toml --output-file requirements.txt
+#
+# Or manually sync with [project.dependencies] in pyproject.toml
+
+pandas>=1.3.0
+requests>=2.25.0
+scipy>=1.7.0
+matplotlib>=3.3.0
