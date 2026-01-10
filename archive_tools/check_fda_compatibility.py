@@ -40,7 +40,7 @@ from pymaude import MaudeDatabase
 
 
 class CompatibilityChecker:
-    """Check FDA MAUDE site compatibility with maude_db library."""
+    """Check FDA MAUDE site compatibility with PyMAUDE library."""
 
     def __init__(self, verbose=True, quick=False):
         self.verbose = verbose
@@ -112,7 +112,7 @@ class CompatibilityChecker:
             (2023, 'master', 'mdrfoithru2023.zip'),
             (2023, 'device', 'device2023.zip'),
             (2023, 'text', 'foitext2023.zip'),
-            (1999, 'device', 'foidev1999.zip'),  # Old naming convention
+            (2000, 'device', 'device2000.zip'),  # First year with new schema
         ]
 
         all_passed = True
@@ -222,11 +222,11 @@ class CompatibilityChecker:
             return True
 
         check_name = 'download_and_parse'
-        self.log("Testing file download and parsing (using 1998 device data, ~3MB)...")
+        self.log("Testing file download and parsing (using 2000 device data)...")
 
         try:
-            # Use 1998 as it's a small file
-            year = 1998
+            # Use 2000 as it's the first year supported (post-schema change)
+            year = 2000
             table = 'device'
             url, filename = self.db._construct_file_url(table, year)
 
@@ -339,9 +339,9 @@ class CompatibilityChecker:
             print("="*70)
 
             if self.results['compatible']:
-                print("\n✓ FDA MAUDE site is COMPATIBLE with maude_db library")
+                print("\n✓ FDA MAUDE site is COMPATIBLE with PyMAUDE library")
             else:
-                print("\n✗ FDA MAUDE site is INCOMPATIBLE with maude_db library")
+                print("\n✗ FDA MAUDE site is INCOMPATIBLE with PyMAUDE library")
 
             if self.results['warnings']:
                 print(f"\n⚠ Warnings ({len(self.results['warnings'])}):")
@@ -360,7 +360,7 @@ class CompatibilityChecker:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Check FDA MAUDE website compatibility with maude_db library',
+        description='Check FDA MAUDE website compatibility with PyMAUDE library',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
