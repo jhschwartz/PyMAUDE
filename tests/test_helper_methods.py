@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
 Tests for helper query methods that operate on DataFrames.
+
+These tests verify backwards compatibility - methods should still work
+when called via db.method_name() even though they're now in analysis_helpers module.
 """
 
 import pytest
@@ -12,6 +15,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from maude_db import MaudeDatabase
+from maude_db import analysis_helpers
 
 
 @pytest.fixture

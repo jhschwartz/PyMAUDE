@@ -59,8 +59,8 @@ venv\Scripts\activate     # On Windows
 
 # Your prompt should now show (venv)
 
-# Install required packages
-pip install -r requirements.txt
+# Install package with dependencies from pyproject.toml
+pip install -e .
 
 # Verify installation
 python -c "from maude_db import MaudeDatabase; print('Success!')"

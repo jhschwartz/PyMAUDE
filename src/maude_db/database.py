@@ -32,6 +32,7 @@ import hashlib
 
 from .metadata import TABLE_METADATA, FDA_BASE_URL
 from . import processors
+from . import analysis_helpers
 
 
 class MaudeDatabase:
@@ -1236,220 +1237,90 @@ class MaudeDatabase:
             print(f'Exported {len(df):,} records to {output_file}')
 
 
-    # ==================== Helper Query Methods ====================
+    # ==================== Helper Query Methods (Delegated to analysis_helpers) ====================
 
     def get_narratives_for(self, results_df):
-        """
-        Get narratives for a query result DataFrame.
-
-        Convenience method that extracts MDR_REPORT_KEYs from a DataFrame
-        and retrieves their narratives. Useful for chaining after query_device().
-
-        Args:
-            results_df: DataFrame containing MDR_REPORT_KEY column
-                       (typically from query_device() or similar)
-
-        Returns:
-            DataFrame with mdr_report_key and narrative text
-
-        Example:
-            results = db.query_device(device_name='thrombectomy')
-            narratives = db.get_narratives_for(results)
-        """
-        if 'MDR_REPORT_KEY' not in results_df.columns:
-            raise ValueError("DataFrame must contain 'MDR_REPORT_KEY' column")
-
-        keys = results_df['MDR_REPORT_KEY'].tolist()
-        return self.get_narratives(keys)
-
+        """Get narratives for query results. See analysis_helpers module."""
+        return analysis_helpers.get_narratives_for(self, results_df)
 
     def trends_for(self, results_df):
-        """
-        Get yearly trends for a query result DataFrame.
-
-        Analyzes the provided DataFrame to compute yearly event counts
-        and breakdowns by event type (deaths, injuries, malfunctions).
-
-        Args:
-            results_df: DataFrame with DATE_RECEIVED and EVENT_TYPE columns
-                       (typically from query_device())
-
-        Returns:
-            DataFrame with columns: year, event_count, deaths, injuries, malfunctions
-
-        Example:
-            results = db.query_device(device_name='pacemaker')
-            trends = db.trends_for(results)
-        """
-        required_cols = ['DATE_RECEIVED', 'EVENT_TYPE']
-        missing = [col for col in required_cols if col not in results_df.columns]
-        if missing:
-            raise ValueError(f"DataFrame missing required columns: {missing}")
-
-        # Create a temporary copy with year extracted
-        # Handle duplicate columns (e.g., when joining master and device tables)
-        df = results_df.copy()
-        # Get the first DATE_RECEIVED column if there are duplicates
-        date_received = df['DATE_RECEIVED']
-        if isinstance(date_received, pd.DataFrame):
-            # Multiple DATE_RECEIVED columns - use the first one (from master table)
-            date_received = date_received.iloc[:, 0]
-        df['year'] = pd.to_datetime(date_received).dt.year
-
-        # Get EVENT_TYPE column, handling duplicates if they exist
-        event_type_col = df['EVENT_TYPE']
-        if isinstance(event_type_col, pd.DataFrame):
-            # Multiple EVENT_TYPE columns - use the first one (from master table)
-            event_type_col = event_type_col.iloc[:, 0]
-        df['event_type_clean'] = event_type_col
-
-        # Aggregate by year
-        # FDA uses abbreviations: D=Death, IN=Injury, M=Malfunction
-        trends = df.groupby('year').agg(
-            event_count=('year', 'size'),
-            deaths=('event_type_clean', lambda x: x.str.contains(r'\bD\b|Death', case=False, na=False, regex=True).sum()),
-            injuries=('event_type_clean', lambda x: x.str.contains(r'\bIN\b|Injury', case=False, na=False, regex=True).sum()),
-            malfunctions=('event_type_clean', lambda x: x.str.contains(r'\bM\b|Malfunction', case=False, na=False, regex=True).sum())
-        ).reset_index()
-
-        return trends
-
+        """Get yearly trends. See analysis_helpers module."""
+        return analysis_helpers.trends_for(results_df)
 
     def event_type_breakdown_for(self, results_df):
-        """
-        Get event type breakdown for a query result DataFrame.
-
-        Provides summary statistics of event types (deaths, injuries, malfunctions)
-        in the provided DataFrame. Counts unique events (MDR_REPORT_KEY) to handle
-        cases where multiple devices may be associated with a single event.
-
-        Args:
-            results_df: DataFrame with EVENT_TYPE and MDR_REPORT_KEY columns
-                       (typically from query_device())
-
-        Returns:
-            dict with counts: {
-                'total': int,
-                'deaths': int,
-                'injuries': int,
-                'malfunctions': int,
-                'other': int
-            }
-
-        Example:
-            results = db.query_device(device_name='thrombectomy')
-            breakdown = db.event_type_breakdown_for(results)
-            print(f"Deaths: {breakdown['deaths']}")
-        """
-        if 'EVENT_TYPE' not in results_df.columns:
-            raise ValueError("DataFrame must contain 'EVENT_TYPE' column")
-
-        # Count unique events (MDR_REPORT_KEY) to avoid double-counting multi-device events
-        if 'MDR_REPORT_KEY' in results_df.columns:
-            # Get unique MDR_REPORT_KEYs with their EVENT_TYPE
-            mdr_key = results_df['MDR_REPORT_KEY']
-            if isinstance(mdr_key, pd.DataFrame):
-                mdr_key = mdr_key.iloc[:, 0]
-
-            event_type = results_df['EVENT_TYPE']
-            if isinstance(event_type, pd.DataFrame):
-                event_type = event_type.iloc[:, 0]
-
-            # Create a deduplicated DataFrame
-            unique_df = pd.DataFrame({
-                'MDR_REPORT_KEY': mdr_key,
-                'EVENT_TYPE': event_type
-            }).drop_duplicates(subset=['MDR_REPORT_KEY'])
-
-            total = len(unique_df)
-            event_type = unique_df['EVENT_TYPE'].fillna('')
-        else:
-            # Fallback: count all rows if MDR_REPORT_KEY not available
-            total = len(results_df)
-            event_type = results_df['EVENT_TYPE']
-            if isinstance(event_type, pd.DataFrame):
-                event_type = event_type.iloc[:, 0]
-            event_type = event_type.fillna('')
-
-        # FDA uses abbreviations: D=Death, IN=Injury, M=Malfunction
-        # Also check for full words for backwards compatibility
-        deaths = event_type.str.contains(r'\bD\b|Death', case=False, regex=True).sum()
-        injuries = event_type.str.contains(r'\bIN\b|Injury', case=False, regex=True).sum()
-        malfunctions = event_type.str.contains(r'\bM\b|Malfunction', case=False, regex=True).sum()
-
-        # Events can have multiple types, so other is approximate
-        other = total - max(deaths, injuries, malfunctions)
-
-        return {
-            'total': total,
-            'deaths': int(deaths),
-            'injuries': int(injuries),
-            'malfunctions': int(malfunctions),
-            'other': max(0, int(other))
-        }
-
+        """Get event type breakdown. See analysis_helpers module."""
+        return analysis_helpers.event_type_breakdown_for(results_df)
 
     def top_manufacturers_for(self, results_df, n=10):
-        """
-        Get top manufacturers from a query result DataFrame.
-
-        Args:
-            results_df: DataFrame with MANUFACTURER_D_NAME column
-                       (typically from query_device())
-            n: Number of top manufacturers to return (default: 10)
-
-        Returns:
-            DataFrame with columns: manufacturer, event_count
-            Sorted by event_count descending
-
-        Example:
-            results = db.query_device(device_name='pacemaker')
-            top_mfg = db.top_manufacturers_for(results, n=5)
-        """
-        if 'MANUFACTURER_D_NAME' not in results_df.columns:
-            raise ValueError("DataFrame must contain 'MANUFACTURER_D_NAME' column")
-
-        counts = results_df['MANUFACTURER_D_NAME'].value_counts().head(n)
-        return pd.DataFrame({
-            'manufacturer': counts.index,
-            'event_count': counts.values
-        })
-
+        """Get top manufacturers. See analysis_helpers module."""
+        return analysis_helpers.top_manufacturers_for(results_df, n)
 
     def date_range_summary_for(self, results_df):
-        """
-        Get date range summary for a query result DataFrame.
+        """Get date range summary. See analysis_helpers module."""
+        return analysis_helpers.date_range_summary_for(results_df)
 
-        Args:
-            results_df: DataFrame with DATE_RECEIVED column
-                       (typically from query_device())
+    # ==================== New Analysis Helper Methods ====================
 
-        Returns:
-            dict with: {
-                'first_date': str,
-                'last_date': str,
-                'total_days': int,
-                'total_records': int
-            }
+    def query_multiple_devices(self, device_names, start_date=None, end_date=None,
+                              deduplicate=True, brand_column='query_brand'):
+        """Query multiple devices. See analysis_helpers module."""
+        return analysis_helpers.query_multiple_devices(
+            self, device_names, start_date, end_date, deduplicate, brand_column
+        )
 
-        Example:
-            results = db.query_device(device_name='thrombectomy')
-            summary = db.date_range_summary_for(results)
-            print(f"Data spans {summary['total_days']} days")
-        """
-        if 'DATE_RECEIVED' not in results_df.columns:
-            raise ValueError("DataFrame must contain 'DATE_RECEIVED' column")
+    def enrich_with_problems(self, results_df):
+        """Join device problem codes. See analysis_helpers module."""
+        return analysis_helpers.enrich_with_problems(self, results_df)
 
-        dates = pd.to_datetime(results_df['DATE_RECEIVED'])
-        first = dates.min()
-        last = dates.max()
+    def enrich_with_patient_data(self, results_df):
+        """Join patient outcome data. See analysis_helpers module."""
+        return analysis_helpers.enrich_with_patient_data(self, results_df)
 
-        return {
-            'first_date': str(first.date()) if pd.notna(first) else None,
-            'last_date': str(last.date()) if pd.notna(last) else None,
-            'total_days': (last - first).days if pd.notna(first) and pd.notna(last) else 0,
-            'total_records': len(results_df)
-        }
+    def enrich_with_narratives(self, results_df):
+        """Join event narratives. See analysis_helpers module."""
+        return analysis_helpers.enrich_with_narratives(self, results_df)
+
+    def summarize_by_brand(self, results_df, group_column='standard_brand', include_temporal=True):
+        """Generate summary statistics by brand. See analysis_helpers module."""
+        return analysis_helpers.summarize_by_brand(results_df, group_column, include_temporal)
+
+    def find_brand_variations(self, search_terms, max_results=50):
+        """Find brand name variations. See analysis_helpers module."""
+        return analysis_helpers.find_brand_variations(self, search_terms, max_results)
+
+    def standardize_brand_names(self, results_df, mapping_dict,
+                               source_col='BRAND_NAME', target_col='standard_brand'):
+        """Standardize brand names. See analysis_helpers module."""
+        return analysis_helpers.standardize_brand_names(
+            results_df, mapping_dict, source_col, target_col
+        )
+
+    def create_contingency_table(self, results_df, row_var, col_var, normalize=False):
+        """Create contingency table. See analysis_helpers module."""
+        return analysis_helpers.create_contingency_table(results_df, row_var, col_var, normalize)
+
+    def chi_square_test(self, results_df, row_var, col_var, exclude_cols=None):
+        """Perform chi-square test. See analysis_helpers module."""
+        return analysis_helpers.chi_square_test(results_df, row_var, col_var, exclude_cols)
+
+    def event_type_comparison(self, results_df, group_var='standard_brand'):
+        """Compare event type distributions. See analysis_helpers module."""
+        return analysis_helpers.event_type_comparison(results_df, group_var)
+
+    def plot_temporal_trends(self, summary_dict, output_file=None, figsize=(12, 6), **kwargs):
+        """Generate temporal trend figure. See analysis_helpers module."""
+        return analysis_helpers.plot_temporal_trends(summary_dict, output_file, figsize, **kwargs)
+
+    def plot_problem_distribution(self, contingency_table, output_file=None, stacked=True, **kwargs):
+        """Generate problem distribution chart. See analysis_helpers module."""
+        return analysis_helpers.plot_problem_distribution(contingency_table, output_file, stacked, **kwargs)
+
+    def export_publication_figures(self, results_df, output_dir, prefix='figure',
+                                   formats=['png', 'pdf'], **kwargs):
+        """Batch export publication figures. See analysis_helpers module."""
+        return analysis_helpers.export_publication_figures(
+            self, results_df, output_dir, prefix, formats, **kwargs
+        )
 
 
     # ==================== Database Info Methods ====================

@@ -1,0 +1,351 @@
+"""
+Tests for analysis_helpers module.
+
+Includes both unit tests with synthetic data and integration tests with real test database.
+"""
+
+import pytest
+import pandas as pd
+import os
+import tempfile
+from maude_db import MaudeDatabase
+from maude_db import analysis_helpers
+
+
+class TestAnalysisHelpers:
+    """Unit tests with synthetic data."""
+
+    def test_trends_for(self):
+        """Test yearly trends calculation."""
+        df = pd.DataFrame({
+            'DATE_RECEIVED': ['2020-01-15', '2020-06-20', '2021-03-10', '2021-08-05', '2021-12-25'],
+            'EVENT_TYPE': ['Death', 'Injury', 'Malfunction', 'Death', 'Injury']
+        })
+
+        trends = analysis_helpers.trends_for(df)
+
+        assert len(trends) == 2  # 2020 and 2021
+        assert trends['year'].tolist() == [2020, 2021]
+        assert trends.loc[trends['year'] == 2020, 'event_count'].values[0] == 2
+        assert trends.loc[trends['year'] == 2021, 'event_count'].values[0] == 3
+        assert trends.loc[trends['year'] == 2020, 'deaths'].values[0] == 1
+        assert trends.loc[trends['year'] == 2021, 'deaths'].values[0] == 1
+
+    def test_trends_for_missing_columns(self):
+        """Test trends_for with missing columns raises error."""
+        df = pd.DataFrame({'DATE_RECEIVED': ['2020-01-15']})
+
+        with pytest.raises(ValueError, match="missing required columns"):
+            analysis_helpers.trends_for(df)
+
+    def test_event_type_breakdown_for(self):
+        """Test event type breakdown."""
+        df = pd.DataFrame({
+            'MDR_REPORT_KEY': [1, 2, 3, 4, 5],
+            'EVENT_TYPE': ['Death', 'Injury', 'Malfunction', 'Death', 'Injury, Malfunction']
+        })
+
+        breakdown = analysis_helpers.event_type_breakdown_for(df)
+
+        assert breakdown['total'] == 5
+        assert breakdown['deaths'] == 2
+        assert breakdown['injuries'] == 2
+        assert breakdown['malfunctions'] >= 2  # At least 2
+
+    def test_event_type_breakdown_deduplicates(self):
+        """Test that event_type_breakdown deduplicates by MDR_REPORT_KEY."""
+        df = pd.DataFrame({
+            'MDR_REPORT_KEY': [1, 1, 2, 2, 3],  # Duplicates
+            'EVENT_TYPE': ['Death', 'Death', 'Injury', 'Injury', 'Malfunction']
+        })
+
+        breakdown = analysis_helpers.event_type_breakdown_for(df)
+
+        assert breakdown['total'] == 3  # Only 3 unique reports
+        assert breakdown['deaths'] == 1
+        assert breakdown['injuries'] == 1
+        assert breakdown['malfunctions'] == 1
+
+    def test_top_manufacturers_for(self):
+        """Test top manufacturers calculation."""
+        df = pd.DataFrame({
+            'MANUFACTURER_D_NAME': ['Acme Corp', 'Acme Corp', 'Beta Inc', 'Gamma LLC', 'Beta Inc']
+        })
+
+        top_mfg = analysis_helpers.top_manufacturers_for(df, n=2)
+
+        assert len(top_mfg) == 2
+        assert top_mfg.iloc[0]['manufacturer'] in ['Acme Corp', 'Beta Inc']
+        assert top_mfg.iloc[0]['event_count'] == 2
+
+    def test_date_range_summary_for(self):
+        """Test date range summary."""
+        df = pd.DataFrame({
+            'DATE_RECEIVED': ['2020-01-01', '2020-06-15', '2020-12-31']
+        })
+
+        summary = analysis_helpers.date_range_summary_for(df)
+
+        assert summary['first_date'] == '2020-01-01'
+        assert summary['last_date'] == '2020-12-31'
+        assert summary['total_days'] == 365  # 2020 was a leap year
+        assert summary['total_records'] == 3
+
+    def test_standardize_brand_names(self):
+        """Test brand name standardization."""
+        df = pd.DataFrame({
+            'BRAND_NAME': ['VENOVO', 'Venovo Stent', 'vici device', 'Unknown Product', None]
+        })
+        mapping = {'venovo': 'Venovo', 'vici': 'Vici'}
+
+        result = analysis_helpers.standardize_brand_names(df, mapping)
+
+        assert 'standard_brand' in result.columns
+        assert result['standard_brand'].tolist() == ['Venovo', 'Venovo', 'Vici', 'Unknown Product', None]
+
+    def test_standardize_brand_names_custom_columns(self):
+        """Test brand name standardization with custom column names."""
+        df = pd.DataFrame({
+            'custom_brand': ['VENOVO Product', 'VICI Device']
+        })
+        mapping = {'venovo': 'Venovo', 'vici': 'Vici'}
+
+        result = analysis_helpers.standardize_brand_names(
+            df, mapping, source_col='custom_brand', target_col='cleaned_brand'
+        )
+
+        assert 'cleaned_brand' in result.columns
+        assert result['cleaned_brand'].tolist() == ['Venovo', 'Vici']
+
+    def test_summarize_by_brand(self):
+        """Test brand summarization."""
+        df = pd.DataFrame({
+            'standard_brand': ['Brand A', 'Brand A', 'Brand B', 'Brand B', 'Brand C'],
+            'DATE_RECEIVED': ['2020-01-01', '2020-06-01', '2020-03-01', '2020-09-01', '2021-01-01'],
+            'EVENT_TYPE': ['Injury', 'Death', 'Malfunction', 'Injury', 'Death']
+        })
+
+        summary = analysis_helpers.summarize_by_brand(df)
+
+        assert summary['counts'] == {'Brand A': 2, 'Brand B': 2, 'Brand C': 1}
+        assert 'temporal' in summary
+        assert 'event_types' in summary
+        assert 'date_range' in summary
+
+    def test_summarize_by_brand_missing_column(self):
+        """Test summarize_by_brand with missing group column."""
+        df = pd.DataFrame({
+            'BRAND_NAME': ['Brand A', 'Brand B']
+        })
+
+        with pytest.raises(ValueError, match="must contain 'standard_brand' column"):
+            analysis_helpers.summarize_by_brand(df)
+
+    def test_create_contingency_table(self):
+        """Test contingency table creation."""
+        df = pd.DataFrame({
+            'brand': ['A', 'A', 'B', 'B', 'C', 'C'],
+            'category': ['Cat1', 'Cat2', 'Cat1', 'Cat1', 'Cat2', 'Cat2']
+        })
+
+        table = analysis_helpers.create_contingency_table(df, 'brand', 'category')
+
+        assert table.loc['A', 'Cat1'] == 1
+        assert table.loc['A', 'Cat2'] == 1
+        assert table.loc['B', 'Cat1'] == 2
+
+    def test_create_contingency_table_normalized(self):
+        """Test contingency table with normalization."""
+        df = pd.DataFrame({
+            'brand': ['A', 'A', 'B', 'B', 'B', 'B'],
+            'category': ['Cat1', 'Cat2', 'Cat1', 'Cat1', 'Cat1', 'Cat2']
+        })
+
+        result = analysis_helpers.create_contingency_table(df, 'brand', 'category', normalize=True)
+
+        assert 'counts' in result
+        assert 'percentages' in result
+        # Brand A: 50% Cat1, 50% Cat2
+        assert abs(result['percentages'].loc['A', 'Cat1'] - 50.0) < 0.1
+        assert abs(result['percentages'].loc['A', 'Cat2'] - 50.0) < 0.1
+        # Brand B: 75% Cat1, 25% Cat2
+        assert abs(result['percentages'].loc['B', 'Cat1'] - 75.0) < 0.1
+        assert abs(result['percentages'].loc['B', 'Cat2'] - 25.0) < 0.1
+
+    def test_chi_square_test(self):
+        """Test chi-square test."""
+        # Create data with clear association
+        df = pd.DataFrame({
+            'brand': ['A']*10 + ['B']*10,
+            'problem': ['Problem1']*9 + ['Problem2']*1 + ['Problem2']*9 + ['Problem1']*1
+        })
+
+        result = analysis_helpers.chi_square_test(df, 'brand', 'problem')
+
+        assert 'chi2_statistic' in result
+        assert 'p_value' in result
+        assert 'dof' in result
+        assert 'expected_frequencies' in result
+        assert 'significant' in result
+        assert result['significant'] == True  # Should be significant
+
+    def test_event_type_comparison(self):
+        """Test event type comparison."""
+        df = pd.DataFrame({
+            'MDR_REPORT_KEY': [1, 2, 3, 4, 5, 6],
+            'standard_brand': ['Brand A', 'Brand A', 'Brand A', 'Brand B', 'Brand B', 'Brand B'],
+            'EVENT_TYPE': ['Death', 'Injury', 'Malfunction', 'Death', 'Death', 'Injury']
+        })
+
+        comparison = analysis_helpers.event_type_comparison(df)
+
+        assert 'counts' in comparison
+        assert 'percentages' in comparison
+        assert 'chi2_test' in comparison
+        assert 'summary' in comparison
+        assert isinstance(comparison['summary'], str)
+        assert 'Brand A' in comparison['summary']
+        assert 'Brand B' in comparison['summary']
+
+
+@pytest.mark.integration
+class TestAnalysisHelpersIntegration:
+    """Integration tests with real test database."""
+
+    @pytest.fixture
+    def db_with_data(self, tmp_path):
+        """Create test database with sample data."""
+        db_path = str(tmp_path / 'test.db')
+        db = MaudeDatabase(db_path, verbose=False)
+
+        # Create sample device data
+        device_data = pd.DataFrame({
+            'MDR_REPORT_KEY': [1, 2, 3, 4, 5],
+            'BRAND_NAME': ['Test Device A', 'Test Device B', 'Test Device A', 'Test Device C', 'Test Device B'],
+            'GENERIC_NAME': ['Device Type 1', 'Device Type 2', 'Device Type 1', 'Device Type 3', 'Device Type 2'],
+            'MANUFACTURER_D_NAME': ['Acme Corp', 'Beta Inc', 'Acme Corp', 'Gamma LLC', 'Beta Inc'],
+            'DATE_RECEIVED': ['2020-01-15', '2020-06-20', '2021-03-10', '2021-08-05', '2021-12-25'],
+            'EVENT_TYPE': ['Death', 'Injury', 'Malfunction', 'Death', 'Injury']
+        })
+
+        # Insert into database
+        device_data.to_sql('device', db.conn, if_exists='replace', index=False)
+
+        # Create master table entry
+        master_data = pd.DataFrame({
+            'MDR_REPORT_KEY': [1, 2, 3, 4, 5],
+            'DATE_RECEIVED': ['2020-01-15', '2020-06-20', '2021-03-10', '2021-08-05', '2021-12-25'],
+            'EVENT_TYPE': ['Death', 'Injury', 'Malfunction', 'Death', 'Injury']
+        })
+        master_data.to_sql('master', db.conn, if_exists='replace', index=False)
+
+        yield db
+        db.close()
+
+    def test_query_multiple_devices_workflow(self, db_with_data):
+        """Test full multi-device query workflow."""
+        brands = ['Test Device A', 'Test Device B']
+        results = analysis_helpers.query_multiple_devices(
+            db_with_data, brands
+        )
+
+        assert len(results) > 0
+        assert 'query_brand' in results.columns
+        assert 'all_matching_brands' in results.columns
+        # Should find devices with either brand
+        assert results['query_brand'].isin(brands).all()
+
+    def test_query_multiple_devices_deduplication(self, db_with_data):
+        """Test that query_multiple_devices deduplicates correctly."""
+        brands = ['Test Device']  # Partial match will find multiple
+        results = analysis_helpers.query_multiple_devices(
+            db_with_data, brands, deduplicate=True
+        )
+
+        # Should have no duplicate MDR_REPORT_KEYs
+        assert len(results) == results['MDR_REPORT_KEY'].nunique()
+
+    def test_enrich_missing_table_raises_error(self, db_with_data):
+        """Test strict error when table not loaded."""
+        df = pd.DataFrame({'MDR_REPORT_KEY': [1, 2, 3]})
+
+        with pytest.raises(ValueError, match="Problems table not loaded"):
+            analysis_helpers.enrich_with_problems(db_with_data, df)
+
+        with pytest.raises(ValueError, match="Patient table not loaded"):
+            analysis_helpers.enrich_with_patient_data(db_with_data, df)
+
+        with pytest.raises(ValueError, match="Text table not loaded"):
+            analysis_helpers.enrich_with_narratives(db_with_data, df)
+
+    def test_find_brand_variations(self, db_with_data):
+        """Test finding brand variations."""
+        variations = analysis_helpers.find_brand_variations(db_with_data, 'Test Device')
+
+        assert len(variations) > 0
+        assert 'BRAND_NAME' in variations.columns
+        assert 'count' in variations.columns
+        assert 'sample_mdr_keys' in variations.columns
+
+    def test_find_brand_variations_multiple_terms(self, db_with_data):
+        """Test finding variations with multiple search terms."""
+        variations = analysis_helpers.find_brand_variations(
+            db_with_data, ['Device A', 'Device B']
+        )
+
+        assert len(variations) > 0
+
+    def test_get_narratives_for_wrapper(self, db_with_data):
+        """Test get_narratives_for with database instance."""
+        # Create text table
+        text_data = pd.DataFrame({
+            'MDR_REPORT_KEY': [1, 2],
+            'FOI_TEXT': ['Event narrative 1', 'Event narrative 2']
+        })
+        text_data.to_sql('text', db_with_data.conn, if_exists='replace', index=False)
+
+        results = pd.DataFrame({'MDR_REPORT_KEY': [1, 2, 3]})
+        narratives = analysis_helpers.get_narratives_for(db_with_data, results)
+
+        assert len(narratives) == 2  # Only 2 have narratives
+        assert 'FOI_TEXT' in narratives.columns
+
+    def test_backwards_compatibility_via_db_instance(self, db_with_data):
+        """Test that existing methods still work through database instance."""
+        results = db_with_data.query_device(device_name='Test Device A')
+
+        # Test old helper methods
+        trends = db_with_data.trends_for(results)
+        assert len(trends) > 0
+
+        breakdown = db_with_data.event_type_breakdown_for(results)
+        assert 'total' in breakdown
+
+        top_mfg = db_with_data.top_manufacturers_for(results)
+        assert len(top_mfg) > 0
+
+        date_summary = db_with_data.date_range_summary_for(results)
+        assert 'first_date' in date_summary
+
+    def test_new_methods_via_db_instance(self, db_with_data):
+        """Test that new methods work through database instance."""
+        # Test query_multiple_devices
+        results = db_with_data.query_multiple_devices(['Test Device A', 'Test Device B'])
+        assert len(results) > 0
+
+        # Test standardize_brand_names
+        mapping = {'test device a': 'Device A', 'test device b': 'Device B'}
+        standardized = db_with_data.standardize_brand_names(results, mapping)
+        assert 'standard_brand' in standardized.columns
+
+        # Test summarize_by_brand
+        summary = db_with_data.summarize_by_brand(standardized)
+        assert 'counts' in summary
+
+        # Test find_brand_variations
+        variations = db_with_data.find_brand_variations('Test Device')
+        assert len(variations) > 0
+
+
+if __name__ == '__main__':
+    pytest.main([__file__, '-v'])

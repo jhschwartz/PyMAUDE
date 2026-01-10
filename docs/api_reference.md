@@ -477,6 +477,8 @@ results = db.query_device(device_name='thrombectomy')
 narratives = db.get_narratives_for(results)
 ```
 
+**Implementation Note**: This method is implemented in `analysis_helpers` module. For direct access: `from maude_db import analysis_helpers`
+
 **Related**: `get_narratives()`, `query_device()`
 
 ---
@@ -505,6 +507,8 @@ print(trends)
 # 0  2020          150       5        45           100
 # 1  2021          165       7        52           106
 ```
+
+**Implementation Note**: This method is implemented in `analysis_helpers` module.
 
 **Related**: `get_trends_by_year()`, `query_device()`
 
@@ -546,6 +550,8 @@ print(f"Malfunctions: {breakdown['malfunctions']}")
 - Event types are not mutually exclusive (one event can have multiple types)
 - `other` is approximate since events can have multiple types
 
+**Implementation Note**: This method is implemented in `analysis_helpers` module.
+
 **Related**: `query_device()`
 
 ---
@@ -570,6 +576,8 @@ print("Top 5 Manufacturers:")
 for idx, row in top_5.iterrows():
     print(f"{idx+1}. {row['manufacturer']}: {row['event_count']} events")
 ```
+
+**Implementation Note**: This method is implemented in `analysis_helpers` module.
 
 **Related**: `query_device()`
 
@@ -603,7 +611,574 @@ print(f"From {summary['first_date']} to {summary['last_date']}")
 print(f"Total records: {summary['total_records']:,}")
 ```
 
+**Implementation Note**: This method is implemented in `analysis_helpers` module.
+
 **Related**: `query_device()`
+
+---
+
+### Analysis Helper Methods
+
+These convenience methods are available via `db.method_name()` and are implemented in the `analysis_helpers` module. They operate on DataFrames returned by query methods to reduce boilerplate code in analysis notebooks. For direct access to the module: `from maude_db import analysis_helpers`
+
+---
+
+#### Multi-Device Analysis
+
+##### `query_multiple_devices(device_names, start_date=None, end_date=None, deduplicate=True, brand_column='query_brand')`
+
+Query multiple device brands and combine results.
+
+**Parameters**:
+- `device_names` (list): List of device names to query
+- `start_date` (str, optional): Start date filter (YYYY-MM-DD)
+- `end_date` (str, optional): End date filter (YYYY-MM-DD)
+- `deduplicate` (bool, default=True): Remove duplicate MDR_REPORT_KEYs
+- `brand_column` (str, default='query_brand'): Column name to track which brand matched
+
+**Returns**: DataFrame with additional columns:
+- `{brand_column}`: Which search term found this report
+- `all_matching_brands`: List of all brands that matched (if deduplicated)
+
+**Examples**:
+
+```python
+# Query multiple venous stent brands
+brands = ['Venovo', 'Vici', 'Zilver Vena', 'Wallstent', 'Abre', 'Duo']
+results = db.query_multiple_devices(
+    brands,
+    start_date='2019-01-01',
+    end_date='2024-12-31'
+)
+
+print(f"Total reports: {len(results)}")
+print(results['query_brand'].value_counts())
+
+# Check for reports matching multiple brands
+multi_brand = results[results['all_matching_brands'].apply(len) > 1]
+print(f"Reports matching multiple brands: {len(multi_brand)}")
+```
+
+**Notes**:
+- Automatically deduplicates by MDR_REPORT_KEY (keeps first occurrence)
+- Tracks which brands matched each report before deduplication
+- More efficient than manual looping and concatenation
+- Prints progress if `verbose=True`
+
+**Related**: `query_device()`, `standardize_brand_names()`
+
+---
+
+#### Data Enrichment Methods
+
+These methods join additional MAUDE tables to query results.
+
+##### `enrich_with_problems(results_df)`
+
+Join device problem codes to query results.
+
+**Parameters**:
+- `results_df` (DataFrame): Results from `query_device()` or similar
+
+**Returns**: DataFrame with problem columns joined:
+- `DEVICE_SEQUENCE_NUMBER`: Device sequence in report
+- `DEVICE_PROBLEM_CODE`: FDA problem code
+
+**Raises**:
+- `ValueError`: If `problems` table not loaded in database
+
+**Examples**:
+
+```python
+# Query devices and get problem codes
+results = db.query_device(device_name='thrombectomy', start_date='2020-01-01')
+enriched = db.enrich_with_problems(results)
+
+# Analyze problem codes
+print(f"Unique problem codes: {enriched['DEVICE_PROBLEM_CODE'].nunique()}")
+print(enriched['DEVICE_PROBLEM_CODE'].value_counts().head(10))
+
+# Export for manual categorization
+enriched[['MDR_REPORT_KEY', 'DEVICE_PROBLEM_CODE']].to_csv('problem_codes.csv')
+```
+
+**Notes**:
+- Requires `problems` table: `db.add_years(years, tables=['problems'], download=True)`
+- Problems table only available from 2019 onwards
+- Left join preserves all original rows (adds NaN for reports without problem codes)
+- One MDR may have multiple problem codes (result has more rows than input)
+
+**Related**: `enrich_with_patient_data()`, `enrich_with_narratives()`
+
+---
+
+##### `enrich_with_patient_data(results_df)`
+
+Join patient outcome data to query results.
+
+**Parameters**:
+- `results_df` (DataFrame): Results from `query_device()` or similar
+
+**Returns**: DataFrame with patient table columns joined, including:
+- `PATIENT_SEQUENCE_NUMBER`: Patient sequence in report
+- `SEQUENCE_NUMBER_OUTCOME`: Raw outcome codes (semicolon-separated)
+- `outcome_codes`: Parsed list of outcome codes
+- `PATIENT_AGE`, `PATIENT_SEX`, etc.
+
+**Raises**:
+- `ValueError`: If `patient` table not loaded in database
+
+**Examples**:
+
+```python
+# Query and enrich with patient data
+results = db.query_device(device_name='stent')
+enriched = db.enrich_with_patient_data(results)
+
+# Check outcome codes
+print("Outcome code frequency:")
+all_codes = [code for codes in enriched['outcome_codes'] for code in codes]
+print(pd.Series(all_codes).value_counts())
+
+# Filter to deaths
+deaths = enriched[enriched['outcome_codes'].apply(lambda x: 'D' in x if x else False)]
+print(f"Reports involving death: {len(deaths.drop_duplicates('MDR_REPORT_KEY'))}")
+```
+
+**Outcome Codes**:
+- `D` = Death
+- `L` = Life threatening
+- `H` = Hospitalization
+- `S` = Disability
+- `C` = Congenital Anomaly
+- `R` = Required Intervention
+- `O` = Other
+
+**Notes**:
+- Requires `patient` table: `db.add_years(years, tables=['patient'], download=True)`
+- Reports without patient records have NaN values
+- One report may have multiple patient records
+- Outcome codes are parsed from semicolon-separated strings into lists
+
+**Related**: `enrich_with_problems()`, `event_type_breakdown_for()`
+
+---
+
+##### `enrich_with_narratives(results_df)`
+
+Join event narrative text to query results.
+
+**Parameters**:
+- `results_df` (DataFrame): Results from `query_device()` or similar
+
+**Returns**: DataFrame with narrative column joined:
+- `FOI_TEXT`: Event narrative description
+
+**Raises**:
+- `ValueError`: If `text` table not loaded in database
+
+**Examples**:
+
+```python
+# Get narratives for analysis
+results = db.query_device(device_name='catheter', start_date='2023-01-01')
+with_text = db.enrich_with_narratives(results)
+
+# Review serious events
+serious = with_text[with_text['EVENT_TYPE'].str.contains('Death|Injury', na=False)]
+for idx, row in serious.head(5).iterrows():
+    print(f"\\nReport {row['MDR_REPORT_KEY']}:")
+    print(row['FOI_TEXT'][:500])
+
+# Export for categorization
+with_text[['MDR_REPORT_KEY', 'FOI_TEXT']].to_csv('narratives_for_coding.csv')
+```
+
+**Notes**:
+- Requires `text` table: `db.add_years(years, tables=['text'], download=True)`
+- Not all reports have narratives
+- Some narratives may be redacted for privacy
+- Left join preserves all original rows
+
+**Related**: `get_narratives()`, `get_narratives_for()`
+
+---
+
+#### Summary and Aggregation
+
+##### `summarize_by_brand(results_df, group_column='standard_brand', include_temporal=True)`
+
+Generate comprehensive summary statistics by device brand.
+
+**Parameters**:
+- `results_df` (DataFrame): Results from query
+- `group_column` (str, default='standard_brand'): Column to group by
+- `include_temporal` (bool, default=True): Include yearly breakdowns
+
+**Returns**: dict with:
+```python
+{
+    'counts': dict,            # Total reports per brand
+    'event_types': DataFrame,  # Event type breakdown per brand
+    'date_range': DataFrame,   # First/last dates per brand
+    'temporal': DataFrame      # Yearly counts (if include_temporal=True)
+}
+```
+
+**Examples**:
+
+```python
+# Multi-device study summary
+brands = ['Venovo', 'Vici', 'Zilver Vena']
+results = db.query_multiple_devices(brands, start_date='2019-01-01')
+results = db.standardize_brand_names(results, {'venovo': 'Venovo', 'vici': 'Vici', 'zilver': 'Zilver Vena'})
+
+summary = db.summarize_by_brand(results)
+
+# View counts
+print("Reports by brand:")
+for brand, count in summary['counts'].items():
+    print(f"  {brand}: {count}")
+
+# Export summary tables
+summary['temporal'].to_csv('table_temporal_trends.csv')
+summary['event_types'].to_csv('table_event_types.csv')
+```
+
+**Notes**:
+- Requires `group_column` to exist (use `standardize_brand_names()` first)
+- Handles missing columns gracefully (skips event_types if EVENT_TYPE missing)
+- Useful for generating manuscript tables
+
+**Related**: `query_multiple_devices()`, `standardize_brand_names()`
+
+---
+
+#### Brand Name Standardization
+
+##### `find_brand_variations(search_terms, max_results=50)`
+
+Find all brand name variations in database.
+
+**Parameters**:
+- `search_terms` (str or list): Search term(s) to find variations for
+- `max_results` (int, default=50): Maximum variations to return
+
+**Returns**: DataFrame with columns:
+- `BRAND_NAME`: Actual brand name in database
+- `count`: Number of reports with this brand name
+- `sample_mdr_keys`: Sample report keys (comma-separated)
+
+**Examples**:
+
+```python
+# Discover all "Venovo" variations
+variations = db.find_brand_variations('venovo')
+print(variations)
+#            BRAND_NAME  count  sample_mdr_keys
+# 0              VENOVO    234  1234567, 1234568, ...
+# 1              Venovo    123  9876543, 9876544, ...
+# 2  Venovo Venous Stent   45  5555555, 5555556, ...
+```
+
+**Notes**:
+- Case-insensitive search
+- Uses SQL LIKE with wildcards (partial matching)
+- Ordered by frequency (most common first)
+- Useful before standardization to understand naming inconsistencies
+
+**Related**: `standardize_brand_names()`, `query_multiple_devices()`
+
+---
+
+##### `standardize_brand_names(results_df, mapping_dict, source_col='BRAND_NAME', target_col='standard_brand')`
+
+Standardize brand names using a mapping dictionary.
+
+**Parameters**:
+- `results_df` (DataFrame): DataFrame with brand names
+- `mapping_dict` (dict): Mapping from patterns to standard names
+- `source_col` (str, default='BRAND_NAME'): Column with original names
+- `target_col` (str, default='standard_brand'): New column for standardized names
+
+**Returns**: DataFrame with new `{target_col}` column
+
+**Examples**:
+
+```python
+# Create standardization mapping
+mapping = {
+    'venovo': 'Venovo',
+    'vici': 'Vici',
+    'zilver': 'Zilver Vena'
+}
+
+# Apply standardization
+results = db.query_multiple_devices(['Venovo', 'VICI', 'Zilver Vena'])
+results = db.standardize_brand_names(results, mapping)
+
+# Use standardized names for analysis
+summary = db.summarize_by_brand(results, group_column='standard_brand')
+```
+
+**Notes**:
+- Case-insensitive pattern matching
+- First matching pattern wins (order mapping dict carefully)
+- Preserves original brand name if no pattern matches
+- NaN values remain NaN
+
+**Related**: `find_brand_variations()`, `query_multiple_devices()`
+
+---
+
+#### Statistical Analysis
+
+##### `create_contingency_table(results_df, row_var, col_var, normalize=False)`
+
+Create contingency table for chi-square analysis.
+
+**Parameters**:
+- `results_df` (DataFrame): Results with categorical variables
+- `row_var` (str): Row variable (e.g., 'standard_brand')
+- `col_var` (str): Column variable (e.g., 'problem_category')
+- `normalize` (bool, default=False): If True, also return percentages
+
+**Returns**: DataFrame if `normalize=False`, or dict with 'counts' and 'percentages' DataFrames
+
+**Examples**:
+
+```python
+# Create table with percentages
+table = db.create_contingency_table(
+    enriched,
+    row_var='standard_brand',
+    col_var='problem_category',
+    normalize=True
+)
+
+print("Counts:")
+print(table['counts'])
+print("\\nPercentages:")
+print(table['percentages'])
+
+# Export for manuscript
+table['counts'].to_csv('table_device_problems_counts.csv')
+table['percentages'].to_csv('table_device_problems_percentages.csv')
+```
+
+**Notes**:
+- Uses `pd.crosstab()` internally
+- Percentages are row-wise (sum to 100% per row)
+- Missing combinations appear as 0
+
+**Related**: `chi_square_test()`, `summarize_by_brand()`
+
+---
+
+##### `chi_square_test(results_df, row_var, col_var, exclude_cols=None)`
+
+Perform chi-square test of independence on categorical variables.
+
+**Parameters**:
+- `results_df` (DataFrame): Results with categorical variables
+- `row_var` (str): Row variable for contingency table
+- `col_var` (str): Column variable for contingency table
+- `exclude_cols` (list, optional): Column values to exclude
+
+**Returns**: dict with:
+```python
+{
+    'chi2_statistic': float,
+    'p_value': float,
+    'dof': int,
+    'expected_frequencies': DataFrame,
+    'significant': bool  # True if p < 0.05
+}
+```
+
+**Examples**:
+
+```python
+# Test if problem distributions differ by brand
+chi2_result = db.chi_square_test(
+    enriched,
+    row_var='standard_brand',
+    col_var='problem_category',
+    exclude_cols=['Uncategorized']
+)
+
+print(f"Chi-square: {chi2_result['chi2_statistic']:.2f}")
+print(f"p-value: {chi2_result['p_value']:.6f}")
+print(f"Significant: {chi2_result['significant']}")
+```
+
+**Notes**:
+- Uses `scipy.stats.chi2_contingency()`
+- Assumes independent observations
+- Check expected frequencies (should be ≥5 for validity)
+
+**Related**: `create_contingency_table()`, `event_type_comparison()`
+
+---
+
+##### `event_type_comparison(results_df, group_var='standard_brand')`
+
+Compare event type distributions across groups with statistical tests.
+
+**Parameters**:
+- `results_df` (DataFrame): Results with EVENT_TYPE column
+- `group_var` (str, default='standard_brand'): Variable to compare across
+
+**Returns**: dict with:
+```python
+{
+    'counts': DataFrame,       # Event counts by group
+    'percentages': DataFrame,  # Percentage of each event type
+    'chi2_test': dict,         # Chi-square test results
+    'summary': str            # Formatted summary text
+}
+```
+
+**Examples**:
+
+```python
+# Compare event severity across devices
+comparison = db.event_type_comparison(results, group_var='standard_brand')
+
+print(comparison['summary'])
+# Output:
+# Event Type Comparison by standard_brand
+# ======================================
+# Chi-square: 45.23 (p=0.0001)
+# Device A: 4.5% deaths, 30.2% injuries, 65.3% malfunctions
+# Device B: 2.0% deaths, 50.1% injuries, 47.9% malfunctions
+```
+
+**Notes**:
+- Automatically handles FDA event type abbreviations (D, IN, M)
+- Events can have multiple types
+- Compares serious events (Death/Injury) vs. Malfunction patterns
+
+**Related**: `chi_square_test()`, `event_type_breakdown_for()`
+
+---
+
+#### Visualization Methods
+
+These methods generate publication-ready figures using matplotlib.
+
+##### `plot_temporal_trends(summary_dict, output_file=None, figsize=(12, 6), **kwargs)`
+
+Generate temporal trend figure from summarize_by_brand() output.
+
+**Parameters**:
+- `summary_dict` (dict): Output from `summarize_by_brand()`
+- `output_file` (str, optional): Path to save figure
+- `figsize` (tuple, default=(12, 6)): Figure size in inches
+- `**kwargs`: Additional matplotlib customization
+
+**Returns**: matplotlib Figure and Axes objects
+
+**Examples**:
+
+```python
+# Generate temporal trend figure
+summary = db.summarize_by_brand(results, include_temporal=True)
+fig, ax = db.plot_temporal_trends(
+    summary,
+    output_file='figure1_temporal_trends.png',
+    title='Annual MAUDE Reports for Venous Stents (2019-2024)'
+)
+```
+
+**Notes**:
+- Requires `temporal` key in summary_dict
+- DPI=300 recommended for publication quality
+- Grid enabled by default
+
+**Related**: `summarize_by_brand()`, `plot_problem_distribution()`
+
+---
+
+##### `plot_problem_distribution(contingency_table, output_file=None, stacked=True, **kwargs)`
+
+Generate stacked bar chart for problem distribution analysis.
+
+**Parameters**:
+- `contingency_table` (DataFrame): From `create_contingency_table()` with normalize=True
+- `output_file` (str, optional): Path to save figure
+- `stacked` (bool, default=True): Create stacked vs. grouped bars
+- `**kwargs`: Additional matplotlib customization
+
+**Returns**: matplotlib Figure and Axes objects
+
+**Examples**:
+
+```python
+# Create device problem distribution figure
+table = db.create_contingency_table(
+    enriched,
+    row_var='standard_brand',
+    col_var='problem_category',
+    normalize=True
+)
+
+fig, ax = db.plot_problem_distribution(
+    table['percentages'],
+    output_file='figure2_device_problems.png',
+    title='Device Problem Distribution'
+)
+```
+
+**Notes**:
+- Input should be percentages for better comparison
+- Stacked bars show relative distribution (sum to 100%)
+
+**Related**: `create_contingency_table()`, `export_publication_figures()`
+
+---
+
+##### `export_publication_figures(results_df, output_dir, prefix='figure', formats=['png', 'pdf'], **kwargs)`
+
+Batch export all standard manuscript figures.
+
+**Parameters**:
+- `results_df` (DataFrame): Results from multi-device query
+- `output_dir` (str): Directory for figure outputs
+- `prefix` (str, default='figure'): Filename prefix
+- `formats` (list, default=['png', 'pdf']): Output formats
+- `**kwargs`: Passed to individual plot functions
+
+**Returns**: dict mapping figure names to file paths
+
+**Examples**:
+
+```python
+# Generate all manuscript figures at once
+figures = db.export_publication_figures(
+    results,
+    output_dir='./figures',
+    prefix='venous_stents',
+    formats=['png', 'pdf']
+)
+
+print("Generated figures:")
+for name, paths in figures.items():
+    print(f"  {name}: {paths}")
+```
+
+**Figures Generated**:
+1. Temporal trends (line chart)
+2. Device problem distribution (stacked bar)
+3. Patient outcome distribution (stacked bar, if patient data available)
+4. Event type comparison (grouped bar)
+
+**Notes**:
+- Creates output directory if doesn't exist
+- High-resolution (DPI=300) for publication
+- Both PNG and PDF formats recommended
+
+**Related**: `plot_temporal_trends()`, `plot_problem_distribution()`
 
 ---
 

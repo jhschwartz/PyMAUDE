@@ -42,8 +42,8 @@ python -c "from maude_db import MaudeDatabase; print('OK')"
 
 **Solution**:
 ```bash
-# Install requirements
-pip install -r requirements.txt
+# Install package with dependencies from pyproject.toml
+pip install -e .
 
 # Verify installation
 pip list | grep pandas
