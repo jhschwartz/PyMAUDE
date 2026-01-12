@@ -21,7 +21,12 @@ Handles reading, parsing, and loading MAUDE data files into SQLite database.
 """
 
 import pandas as pd
+import csv
+import sys
 
+# Increase CSV field size limit for large text fields
+# Set to maximum possible value on the system
+csv.field_size_limit(sys.maxsize)
 
 # SQLite has a maximum string/blob size limit. Set to 100MB to be safe.
 MAX_TEXT_LENGTH = 100 * 1024 * 1024  # 100 MB
@@ -372,6 +377,10 @@ def create_indexes(conn, tables, verbose=False):
     if 'device' in tables and 'device' in existing_tables:
         conn.execute('CREATE INDEX IF NOT EXISTS idx_device_key ON device(MDR_REPORT_KEY)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_device_code ON device(DEVICE_REPORT_PRODUCT_CODE)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_device_generic ON device(GENERIC_NAME)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_device_brand ON device(BRAND_NAME)')
+
+
 
     if 'patient' in tables and 'patient' in existing_tables:
         conn.execute('CREATE INDEX IF NOT EXISTS idx_patient_key ON patient(MDR_REPORT_KEY)')
