@@ -1,6 +1,6 @@
 # MAUDE Database Overview
 
-This document provides background on the FDA MAUDE database for researchers using the `maude_db` library.
+This document provides background on the FDA MAUDE database for researchers using the `PyMAUDE` library.
 
 ## What is MAUDE?
 
@@ -22,7 +22,7 @@ The FDA updates MAUDE monthly with new reports.
 
 ## MAUDE Table Structure
 
-The MAUDE database is organized into several related tables. The `maude_db` library supports the most commonly used tables:
+The MAUDE database is organized into several related tables. The `PyMAUDE` library supports the most commonly used tables:
 
 ### Master Table (MDRFOI)
 
@@ -67,8 +67,8 @@ deduplicated = db.select_primary_report(results, strategy='first_received')
 ```
 
 **Availability**: Only available as cumulative files:
-- Historical data: `mdrfoithru2024.zip` (all data through previous year)
-- Current year: `mdrfoi.zip` (current year data only)
+- Historical data: `mdrfoithru2025.zip` (all data through previous year; filename updates annually)
+- Current year: `mdrfoi.zip` (current year data only; e.g., 2026 as of January 2026)
 
 **Note**: The library automatically uses batch processing to efficiently extract requested years from the cumulative file in a single pass, providing ~29x speedup compared to naive year-by-year processing.
 
@@ -86,7 +86,7 @@ deduplicated = db.select_primary_report(results, strategy='first_received')
 
 **Availability**: Individual year files from 2000-present (`device[year].zip`)
 
-**Note**: 1998-1999 data uses an incompatible schema (contains BASELINE_* columns instead of COMBINATION_PRODUCT_FLAG, UDI fields) and is not supported.
+**Note**: Pre-2000 data uses an incompatible schema (contains BASELINE_* columns instead of COMBINATION_PRODUCT_FLAG, UDI fields) and is not supported.
 
 ### Text Table (FOITEXT)
 
@@ -98,7 +98,7 @@ deduplicated = db.select_primary_report(results, strategy='first_received')
 - `TEXT_TYPE_CODE` - Type of narrative (D=description, E=evaluation, etc.)
 - `FOI_TEXT` - Actual narrative text describing the event
 
-**Availability**: Individual year files from 1996-present (`foitext[year].zip`)
+**Availability**: Individual year files from 2000-present (`foitext[year].zip`)
 
 ### Patient Table (PATIENT)
 
@@ -146,8 +146,8 @@ if validation['multi_patient_reports'] > 0:
 **Reference**: This issue is documented in Ensign & Cohen (2017) "A Primer to the Structure, Content and Linkage of the FDA's MAUDE Files", Tables 4a and 4b, pages 14-16.
 
 **Availability**: Only available as cumulative files:
-- Historical data: `patientthru2024.zip` (all data through previous year)
-- Current year: `patient.zip` (current year data only)
+- Historical data: `patientthru2025.zip` (all data through previous year; filename updates annually)
+- Current year: `patient.zip` (current year data only; e.g., 2026 as of January 2026)
 
 Patient data is distributed as a single large cumulative file (117MB compressed, 841MB uncompressed) containing all historical records. The library uses batch processing to efficiently filter this file and extract only the requested years in a single pass.
 
@@ -200,27 +200,29 @@ db.query("SELECT generic_name FROM device")  # Error: no such column
 db.query("SELECT event_type FROM master")    # Error: no such column
 ```
 
-The `maude_db` query methods handle joins automatically using the correct case.
+The `PyMAUDE` query methods handle joins automatically using the correct case.
 
 ## Data Availability by Year
 
 | Table | Supported Years | File Pattern | Notes |
 |-------|----------------|--------------|-------|
-| Master (MDRFOI) | **2000-present** | `mdrfoithru[year].zip` | Cumulative file only (~150MB), filtered by year automatically |
-| Device (FOIDEV) | **2000-present** | `device[year].zip` (2000-2024)<br>`device.zip` (2025) | Schema changed in 2000 |
+| Master (MDRFOI) | **2000-present** | `mdrfoithru[year].zip` | Cumulative file only (~150MB), filtered by year automatically; filename updates annually |
+| Device (FOIDEV) | **2000-present** | `device[year].zip` (2000-2025)<br>`device.zip` (current year) | Schema changed in 2000 |
 | Text (FOITEXT) | **2000-present** | `foitext[year].zip` | ~45MB per year |
-| Patient | **2000-present** | `patientthru[year].zip` | Cumulative file only (117MB compressed, 841MB uncompressed), filtered by year automatically |
+| Patient | **2000-present** | `patientthru[year].zip` | Cumulative file only (117MB compressed, 841MB uncompressed), filtered by year automatically; filename updates annually |
 | Device Problem | **2019-present** | `foidevproblem[year].zip` | Recent years only |
 
 **Note**: All tables start at 2000 for consistency (device table had a schema change in 2000).
 
-### Current Year Support (2025)
+### Current Year Support (2026)
 
 For the current year, files use yearless names:
-- `device.zip` instead of `device2025.zip`
-- `foitext.zip` instead of `foitext2025.zip`
-- `mdrfoi.zip` instead of `mdrfoithru2025.zip`
-- `patient.zip` instead of `patientthru2025.zip`
+- `device.zip` instead of `device2026.zip`
+- `foitext.zip` instead of `foitext2026.zip`
+- `mdrfoi.zip` instead of `mdrfoithru2026.zip`
+- `patient.zip` instead of `patientthru2026.zip`
+
+**Note**: This section updates yearly. Check the FDA website for the most recent file naming conventions.
 
 ### Legacy Data NOT Supported
 
@@ -232,9 +234,9 @@ If you need data before the supported year ranges, you would need to manually do
 
 ### Incremental Updates
 
-The library currently does **not** support monthly incremental update files (`*add.zip`, `*change.zip`). Only full year files are supported. For the most current data, use the current year yearless files (e.g., `device.zip` for 2025).
+The library currently does **not** support monthly incremental update files (`*add.zip`, `*change.zip`). Only full year files are supported. For the most current data, use the current year yearless files (e.g., `device.zip` for 2026).
 
-The `maude_db` library automatically handles the different naming conventions and filters cumulative files to extract only the requested years.
+The `PyMAUDE` library automatically handles the different naming conventions and filters cumulative files to extract only the requested years.
 
 ## Understanding FDA Product Codes
 
@@ -245,7 +247,7 @@ Each medical device has a three-letter FDA product code that classifies its type
 - `DSM` - Stent, Coronary, Drug-Eluting
 
 **Looking up product codes**:
-- [FDA Product Classification Database](https://www.fda.gov/medical-devices/classify-your-medical-device/product-classification)
+- [FDA Product Classification Database](https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpcd/classification.cfm)
 - Use `DEVICE_REPORT_PRODUCT_CODE` column in device table
 
 Product codes are useful for precise device queries:
@@ -281,9 +283,9 @@ devices = db.query_device(product_code='NIQ')
 
 - **MAUDE Web Interface**: [https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfmaude/search.cfm](https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfmaude/search.cfm)
 - **Data Files**: [https://www.fda.gov/medical-devices/mandatory-reporting-requirements-manufacturers-importers-and-device-user-facilities/manufacturer-and-user-facility-device-experience-database-maude](https://www.fda.gov/medical-devices/mandatory-reporting-requirements-manufacturers-importers-and-device-user-facilities/manufacturer-and-user-facility-device-experience-database-maude)
-- **Product Code Database**: [https://www.fda.gov/medical-devices/classify-your-medical-device/product-classification](https://www.fda.gov/medical-devices/classify-your-medical-device/product-classification)
+- **Product Code Database**: [https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpcd/classification.cfm](https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpcd/classification.cfm)
 - **File Format Documentation**: Included in ZIP downloads from FDA
 
 ---
 
-**Next**: See [getting_started.md](getting_started.md) for hands-on tutorial using `maude_db`.
+**Next**: See [getting_started.md](getting_started.md) for hands-on tutorial using `PyMAUDE`.
