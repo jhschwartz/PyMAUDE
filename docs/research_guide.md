@@ -258,6 +258,192 @@ devices = db.query_device(device_name='unusual_device')
 
 ---
 
+## Common Pitfalls and How to Avoid Them
+
+### Pitfall 1: Counting Reports Instead of Events
+
+**Problem**: Using MDR_REPORT_KEY for event counts inflates totals by ~8% because multiple sources can report the same event.
+
+**Why it happens**: The same adverse event can be reported by the manufacturer, hospital, and patient, creating 2-3 reports with different MDR_REPORT_KEYs but the same EVENT_KEY.
+
+**Solution**: Always check for EVENT_KEY duplication before calculating event counts.
+
+```python
+# INCORRECT - counts reports (includes duplicates)
+results = db.query_device(device_name='catheter', start_date='2022-01-01')
+report_count = len(results['MDR_REPORT_KEY'].unique())  # WRONG!
+print(f"Events: {report_count}")  # Overcounts by ~8%
+
+# CORRECT - check duplication and use events
+duplication = db.count_unique_events(results)
+print(f"Reports: {duplication['total_reports']}")
+print(f"Events: {duplication['unique_events']}")
+print(f"Duplication: {duplication['duplication_rate']:.1f}%")
+
+if duplication['duplication_rate'] > 5:
+    print("⚠️ Significant duplication detected - deduplicating")
+    results = db.select_primary_report(results, strategy='first_received')
+
+event_count = len(results)  # Now accurate
+```
+
+**When it matters**:
+- ✅ Epidemiological analysis
+- ✅ Incidence calculations
+- ✅ Signal detection
+- ✅ Event rate comparisons
+
+**When it doesn't matter**:
+- ❌ Reporting compliance analysis
+- ❌ Comparing report sources (manufacturer vs facility)
+
+**Example impact**:
+```python
+# Real example with venous stents
+results = db.query_device(device_name='venous stent')
+comparison = db.compare_report_vs_event_counts(results)
+print(comparison)
+#    report_count  event_count  inflation_pct
+# 0          2156         1998           7.9
+```
+
+---
+
+### Pitfall 2: Patient Outcome Inflation from Concatenation
+
+**Problem**: When multiple patients share a report, OUTCOME fields concatenate sequentially, leading to massive overcounting (2-3x inflation).
+
+**Why it happens**: MAUDE stores multi-patient reports with cumulative concatenation:
+```
+Report 1234567:
+  Patient 1: OUTCOME = "D"          (death)
+  Patient 2: OUTCOME = "D;H"        (death + hospitalization)
+  Patient 3: OUTCOME = "D;H;L"      (death + hospitalization + life-threatening)
+```
+
+Patient 3's field contains ALL THREE patients' outcomes, not just patient 3's outcome!
+
+**Solution**: Use smart aggregation to count each outcome once per report.
+
+```python
+# INCORRECT - naive counting inflates totals
+results = db.query_device(device_name='stent', start_date='2022-01-01')
+enriched = db.enrich_with_patient_data(results)
+
+# This counts "D" three times in example above!
+death_count = enriched['SEQUENCE_NUMBER_OUTCOME'].str.contains('D', na=False).sum()  # WRONG!
+
+# CORRECT - count unique outcomes per report
+outcome_summary = db.count_unique_outcomes_per_report(enriched)
+death_count = (outcome_summary['unique_outcomes'].apply(lambda x: 'D' in x)).sum()
+print(f"Reports with deaths: {death_count}")  # Accurate!
+
+# Always check for affected reports
+validation = db.detect_multi_patient_reports(enriched)
+if validation['affected_percentage'] > 10:
+    print(f"⚠️ {validation['affected_percentage']:.1f}% have multiple patients")
+    print("   Using safe aggregation method")
+```
+
+**Example impact**:
+```python
+# Demonstrate inflation
+patient_data = db.enrich_with_patient_data(results)
+
+# Naive method
+naive_df = patient_data.copy()
+naive_df['outcome_list'] = naive_df['SEQUENCE_NUMBER_OUTCOME'].apply(
+    lambda x: [c.strip() for c in str(x).split(';') if c.strip()]
+)
+naive_deaths = sum('D' in outcomes for outcomes in naive_df['outcome_list'])
+
+# Correct method
+outcome_summary = db.count_unique_outcomes_per_report(patient_data)
+correct_deaths = sum('D' in outcomes for outcomes in outcome_summary['unique_outcomes'])
+
+print(f"Naive count: {naive_deaths}")
+print(f"Correct count: {correct_deaths}")
+print(f"Inflation: {(naive_deaths/correct_deaths - 1)*100:.1f}%")
+# Output: Inflation: 187.3%  (nearly 3x overcounting!)
+```
+
+**When it matters**:
+- ✅ **Any outcome analysis** (deaths, hospitalizations, injuries)
+- ✅ Safety comparisons between devices
+- ✅ Adverse event rate calculations
+
+**Reference**: Ensign & Cohen (2017) "A Primer to the Structure, Content and Linkage of the FDA's MAUDE Files", Tables 4a-4b, pp. 14-16.
+
+---
+
+### Pitfall 3: Device Sequence Assumptions
+
+**Problem**: Assuming one device per report. A single adverse event can involve multiple devices.
+
+**Example**: Patient has pacemaker and defibrillator malfunction in same event → 2 device records, 1 master record.
+
+**Solution**: Always account for DEVICE_SEQUENCE_NUMBER.
+
+```python
+results = db.query_device(device_name='pacemaker')
+
+# Count unique reports (events)
+report_count = results['MDR_REPORT_KEY'].nunique()
+
+# Count total devices involved (may be higher)
+device_count = len(results)
+
+print(f"Reports: {report_count}")
+print(f"Devices involved: {device_count}")
+print(f"Avg devices per report: {device_count/report_count:.2f}")
+
+if device_count > report_count:
+    print(f"⚠️ {device_count - report_count} reports involve multiple devices")
+```
+
+---
+
+### Pitfall 4: Case-Sensitive Searches
+
+**Problem**: Missing results due to inconsistent capitalization in MAUDE data.
+
+**Example**:
+```python
+# May miss "VENOUS STENT", "Venous Stent", "venous stent"
+results = db.query_device(device_name='venous stent')  # ✓ Handled automatically
+
+# But raw SQL requires UPPER()
+results = db.query(
+    "SELECT * FROM device WHERE UPPER(GENERIC_NAME) LIKE UPPER('%venous stent%')"
+)
+```
+
+**Solution**: PyMAUDE's `query_device()` automatically handles case-insensitive matching. If writing raw SQL, always use `UPPER()` on both sides.
+
+---
+
+### Best Practices Checklist
+
+Before publishing results:
+
+- [ ] **Check EVENT_KEY duplication**: Run `count_unique_events()` and deduplicate if >5%
+- [ ] **Verify patient outcomes**: Run `detect_multi_patient_reports()` and use `count_unique_outcomes_per_report()`
+- [ ] **Document deduplication method**: Report which EVENT_KEY strategy used (first_received, manufacturer, most_complete)
+- [ ] **Check device sequences**: Report if multiple devices per event affect analysis
+- [ ] **Validate date ranges**: Confirm start/end dates match intended study period
+- [ ] **Review sample narratives**: Spot-check that device name matches intended device
+- [ ] **Report data quality**: Include duplication rates, missing data percentages
+
+**Example methods section text**:
+> "We queried the FDA MAUDE database for [device name] from [start] to [end].
+> Multiple reports of the same event (EVENT_KEY duplication) occurred in X.X% of
+> reports; we deduplicated to the first received report per event. Patient outcome
+> data was aggregated to prevent inflation from multi-patient concatenation
+> (Ensign & Cohen, 2017). [N] reports involved multiple devices; we analyzed at
+> the device level where appropriate."
+
+---
+
 ## Working with Large Datasets
 
 ### Efficient Querying

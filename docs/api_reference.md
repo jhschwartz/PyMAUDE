@@ -804,6 +804,294 @@ with_text[['MDR_REPORT_KEY', 'FOI_TEXT']].to_csv('narratives_for_coding.csv')
 
 ---
 
+#### Event Deduplication Methods
+
+##### `count_unique_events(results_df, event_key_col='EVENT_KEY')`
+
+Count unique events vs total reports to detect duplication.
+
+**Critical Context**: Multiple sources can report the same adverse event, creating multiple MDR_REPORT_KEYs with the same EVENT_KEY. Counting by MDR_REPORT_KEY overcounts events by ~8%.
+
+**Parameters**:
+- `results_df` (DataFrame): Query results containing EVENT_KEY column
+- `event_key_col` (str, default='EVENT_KEY'): Column name for EVENT_KEY
+
+**Returns**: dict with keys:
+- `total_reports` (int): Total number of reports (MDR_REPORT_KEYs)
+- `unique_events` (int): Number of unique EVENT_KEYs
+- `duplication_rate` (float): Percentage of reports that are duplicates
+- `multi_report_events` (list): EVENT_KEYs with multiple reports
+
+**Examples**:
+
+```python
+# Check duplication rate in your results
+results = db.query_device(device_name='pacemaker', start_date='2020-01-01')
+duplication = db.count_unique_events(results)
+
+print(f"Total reports: {duplication['total_reports']}")
+print(f"Unique events: {duplication['unique_events']}")
+print(f"Duplication: {duplication['duplication_rate']:.1f}%")
+
+# Decide whether to deduplicate
+if duplication['duplication_rate'] > 5:
+    print(f"⚠️ {duplication['duplication_rate']:.1f}% duplication detected")
+    results = db.select_primary_report(results)
+```
+
+**Notes**:
+- Essential for epidemiological analysis and event counting
+- ~8% duplication rate is typical across MAUDE
+- Use before calculating incidence rates or event counts
+
+**Related**: `detect_multi_report_events()`, `select_primary_report()`
+
+---
+
+##### `detect_multi_report_events(results_df, event_key_col='EVENT_KEY')`
+
+Identify which events have multiple reports (different sources reporting same event).
+
+**Parameters**:
+- `results_df` (DataFrame): Query results containing EVENT_KEY column
+- `event_key_col` (str, default='EVENT_KEY'): Column name for EVENT_KEY
+
+**Returns**: DataFrame with columns:
+- `EVENT_KEY` (str): Event identifier
+- `report_count` (int): Number of reports for this event
+- `mdr_report_keys` (list): List of MDR_REPORT_KEYs for this event
+
+**Examples**:
+
+```python
+# Identify duplicated events
+results = db.query_device(device_name='stent', start_date='2023-01-01')
+multi_reports = db.detect_multi_report_events(results)
+
+print(f"Found {len(multi_reports)} events with multiple reports")
+
+# Examine most-reported events
+top_duplicates = multi_reports.sort_values('report_count', ascending=False).head(10)
+print(top_duplicates)
+
+# Investigate specific event
+event_of_interest = multi_reports[multi_reports['report_count'] >= 5]
+for idx, row in event_of_interest.iterrows():
+    print(f"EVENT_KEY {row['EVENT_KEY']} has {row['report_count']} reports:")
+    print(f"  MDR_REPORT_KEYs: {', '.join(row['mdr_report_keys'][:5])}")
+```
+
+**Notes**:
+- Useful for understanding reporting patterns
+- High report counts may indicate serious events
+- Can identify manufacturer vs user facility reporting differences
+
+**Related**: `count_unique_events()`, `select_primary_report()`
+
+---
+
+##### `select_primary_report(results_df, event_key_col='EVENT_KEY', strategy='first_received')`
+
+When multiple reports exist for same event, select one primary report per event.
+
+**Parameters**:
+- `results_df` (DataFrame): Query results containing EVENT_KEY column
+- `event_key_col` (str, default='EVENT_KEY'): Column name for EVENT_KEY
+- `strategy` (str, default='first_received'): Selection strategy
+  - `'first_received'`: Select earliest DATE_RECEIVED (chronologically first report)
+  - `'manufacturer'`: Prefer manufacturer reports (REPORT_SOURCE_CODE='Manufacturer')
+  - `'most_complete'`: Select report with most non-null fields (most detailed)
+
+**Returns**: DataFrame with one row per unique EVENT_KEY (deduplicated)
+
+**Examples**:
+
+```python
+# Deduplicate to earliest report per event
+results = db.query_device(device_name='catheter', start_date='2022-01-01')
+deduplicated = db.select_primary_report(results, strategy='first_received')
+print(f"Reduced from {len(results)} reports to {len(deduplicated)} unique events")
+
+# Prefer manufacturer reports (usually more detailed)
+mfr_primary = db.select_primary_report(results, strategy='manufacturer')
+
+# Select most complete reports (for narrative analysis)
+complete_primary = db.select_primary_report(results, strategy='most_complete')
+
+# Compare before/after deduplication
+print(f"Original: {len(results)} reports")
+print(f"Deduplicated: {len(deduplicated)} events")
+print(f"Reduction: {(1 - len(deduplicated)/len(results))*100:.1f}%")
+```
+
+**Notes**:
+- Essential for accurate event counting in epidemiological studies
+- Choice of strategy depends on analysis goal:
+  - `first_received`: Temporal studies, signal detection
+  - `manufacturer`: Detailed device information needed
+  - `most_complete`: Qualitative analysis, narrative review
+- Preserves all columns from selected report
+
+**Related**: `count_unique_events()`, `detect_multi_report_events()`, `compare_report_vs_event_counts()`
+
+---
+
+##### `compare_report_vs_event_counts(results_df, event_key_col='EVENT_KEY', group_by=None)`
+
+Compare counting by reports vs events to quantify overcounting.
+
+**Parameters**:
+- `results_df` (DataFrame): Query results containing EVENT_KEY column
+- `event_key_col` (str, default='EVENT_KEY'): Column name for EVENT_KEY
+- `group_by` (str, optional): Column to group by (e.g., 'year', 'EVENT_TYPE')
+
+**Returns**: DataFrame with columns:
+- `[group_by]`: Grouping column (if specified)
+- `report_count` (int): Count of MDR_REPORT_KEYs
+- `event_count` (int): Count of unique EVENT_KEYs
+- `inflation_pct` (float): Percentage overcounting from using report_count
+
+**Examples**:
+
+```python
+# Overall comparison
+results = db.query_device(device_name='venous stent')
+comparison = db.compare_report_vs_event_counts(results)
+print(comparison)
+#    report_count  event_count  inflation_pct
+# 0          2156         1998           7.9%
+
+# Compare by year
+results['year'] = pd.to_datetime(results['DATE_RECEIVED']).dt.year
+yearly = db.compare_report_vs_event_counts(results, group_by='year')
+print(yearly)
+#    year  report_count  event_count  inflation_pct
+# 0  2019           245          228           7.5
+# 1  2020           389          361           7.8
+# 2  2021           512          471           8.7
+
+# Compare by event type
+comparison_by_type = db.compare_report_vs_event_counts(results, group_by='EVENT_TYPE')
+print(comparison_by_type)
+```
+
+**Notes**:
+- Demonstrates importance of EVENT_KEY deduplication
+- Inflation typically 5-10% but varies by device type
+- Use to justify deduplication in methods section of papers
+- Can reveal temporal trends in reporting duplication
+
+**Related**: `count_unique_events()`, `select_primary_report()`
+
+---
+
+#### Patient Data Quality Methods
+
+##### `detect_multi_patient_reports(patient_df)`
+
+Detect reports with multiple patients (potential outcome concatenation issue).
+
+**Critical Context**: When multiple patients are in a report, OUTCOME and TREATMENT fields concatenate sequentially across patients, causing serious overcounting if not handled properly.
+
+**Parameters**:
+- `patient_df` (DataFrame): Patient data from `enrich_with_patient_data()`
+
+**Returns**: dict with keys:
+- `total_reports` (int): Total unique MDR_REPORT_KEYs
+- `multi_patient_reports` (int): Count of reports with >1 patient
+- `affected_percentage` (float): % of reports affected
+- `affected_mdr_keys` (list): MDR_REPORT_KEYs with multiple patients
+
+**Examples**:
+
+```python
+# Check for concatenation issues
+results = db.query_device(device_name='catheter', start_date='2023-01-01')
+enriched = db.enrich_with_patient_data(results)
+validation = db.detect_multi_patient_reports(enriched)
+
+print(f"Total reports: {validation['total_reports']}")
+print(f"Multi-patient reports: {validation['multi_patient_reports']}")
+print(f"Affected: {validation['affected_percentage']:.1f}%")
+
+if validation['affected_percentage'] > 10:
+    print("⚠️ High multi-patient rate - use count_unique_outcomes_per_report()")
+    print("   for accurate outcome counting")
+
+# Examine specific multi-patient reports
+multi_patient_keys = validation['affected_mdr_keys'][:5]
+examples = enriched[enriched['MDR_REPORT_KEY'].isin(multi_patient_keys)]
+print(examples[['MDR_REPORT_KEY', 'PATIENT_SEQUENCE_NUMBER', 'SEQUENCE_NUMBER_OUTCOME']])
+```
+
+**Notes**:
+- Essential before analyzing patient outcomes
+- Percentage varies by device type (typically 5-20%)
+- Multi-patient reports often involve multi-patient procedures or devices
+- See docs/maude_overview.md for detailed explanation of concatenation issue
+
+**Related**: `count_unique_outcomes_per_report()`, `enrich_with_patient_data()`
+
+---
+
+##### `count_unique_outcomes_per_report(patient_df, outcome_col='SEQUENCE_NUMBER_OUTCOME')`
+
+Count unique outcome codes per report, preventing inflation from concatenation.
+
+**Critical Context**: Patient OUTCOME fields concatenate across patients in multi-patient reports. This function counts each outcome code ONCE per report, regardless of concatenation.
+
+**Parameters**:
+- `patient_df` (DataFrame): Patient data with SEQUENCE_NUMBER_OUTCOME column
+- `outcome_col` (str, default='SEQUENCE_NUMBER_OUTCOME'): Column name for outcomes
+
+**Returns**: DataFrame with columns:
+- `MDR_REPORT_KEY` (str): Report identifier
+- `patient_count` (int): Number of patients in this report
+- `unique_outcomes` (list): Unique outcome codes for this report
+- `outcome_counts` (dict): Count of each outcome code (all 1 for unique per report)
+
+**Examples**:
+
+```python
+# Safe outcome counting
+results = db.query_device(device_name='stent', start_date='2022-01-01')
+patient_data = db.enrich_with_patient_data(results)
+outcome_summary = db.count_unique_outcomes_per_report(patient_data)
+
+# Count reports with deaths (avoiding concatenation inflation)
+deaths = (outcome_summary['unique_outcomes'].apply(lambda x: 'D' in x)).sum()
+print(f"Reports with at least one death: {deaths}")
+
+# Count reports with hospitalizations
+hosp = (outcome_summary['unique_outcomes'].apply(lambda x: 'H' in x)).sum()
+print(f"Reports with hospitalization: {hosp}")
+
+# Analyze outcome patterns
+outcome_summary['outcome_str'] = outcome_summary['unique_outcomes'].apply(
+    lambda x: ';'.join(sorted(x)) if x else 'None'
+)
+print("\\nMost common outcome patterns:")
+print(outcome_summary['outcome_str'].value_counts().head(10))
+
+# Compare with naive counting (demonstrates inflation)
+naive_count = patient_data['SEQUENCE_NUMBER_OUTCOME'].str.contains('D', na=False).sum()
+correct_count = deaths
+print(f"\\nNaive death count: {naive_count}")
+print(f"Correct death count: {correct_count}")
+print(f"Inflation: {(naive_count/correct_count - 1)*100:.1f}%")
+```
+
+**Notes**:
+- **Essential for accurate outcome analysis** - naive counting inflates by 2-3x
+- Outcome codes: D=Death, S=Serious Injury, I=Injury, M=Malfunction, etc.
+- Handles semicolon-separated lists and strips whitespace
+- Preserves report-level granularity (one row per MDR_REPORT_KEY)
+- See Ensign & Cohen (2017) for detailed explanation of this data quality issue
+
+**Related**: `detect_multi_patient_reports()`, `enrich_with_patient_data()`
+
+---
+
 #### Summary and Aggregation
 
 ##### `summarize_by_brand(results_df, group_column='standard_brand', include_temporal=True)`

@@ -30,10 +30,41 @@ The MAUDE database is organized into several related tables. The `maude_db` libr
 
 **Key columns**:
 - `MDR_REPORT_KEY` - Unique identifier for each adverse event report
+- `EVENT_KEY` - Groups multiple reports of the same event (see critical note below)
 - `DATE_RECEIVED` - When FDA received the report
 - `EVENT_TYPE` - Type of event (Death, Injury, Malfunction, or combinations)
 - `MANUFACTURER_NAME` - Name of device manufacturer
 - `REPORT_SOURCE_CODE` - Source of report (manufacturer, user facility, etc.)
+
+**CRITICAL: Understanding EVENT_KEY vs MDR_REPORT_KEY**
+
+Not all MDR_REPORT_KEYs represent unique events! The same adverse event can be reported by multiple sources (manufacturer, hospital, patient), creating multiple reports with different MDR_REPORT_KEYs but the same EVENT_KEY.
+
+- **EVENT_KEY**: Groups reports of the same adverse event (~8% of reports share EVENT_KEY)
+- **MDR_REPORT_KEY**: Unique identifier for each report submission
+
+**Impact on Analysis**:
+- Counting by MDR_REPORT_KEY overcounts events by approximately 8%
+- Use EVENT_KEY for: Event counts, incidence rates, epidemiological analysis
+- Use MDR_REPORT_KEY for: Report source analysis, reporting compliance studies
+
+**Example**:
+```python
+# Count reports (may include duplicates)
+report_count = len(results['MDR_REPORT_KEY'].unique())
+
+# Count unique events (deduplicated)
+event_count = len(results['EVENT_KEY'].unique())
+
+# Compare and get details
+duplication = db.count_unique_events(results)
+print(f"Reports: {duplication['total_reports']}")
+print(f"Events: {duplication['unique_events']}")
+print(f"Duplication rate: {duplication['duplication_rate']:.1f}%")
+
+# Deduplicate to one report per event
+deduplicated = db.select_primary_report(results, strategy='first_received')
+```
 
 **Availability**: Only available as cumulative files:
 - Historical data: `mdrfoithru2024.zip` (all data through previous year)
@@ -79,6 +110,40 @@ The MAUDE database is organized into several related tables. The `maude_db` libr
 - `DATE_OF_EVENT` - When adverse event occurred
 - `SEQUENCE_NUMBER_TREATMENT` - Treatment information
 - `SEQUENCE_NUMBER_OUTCOME` - Patient outcome codes
+
+**CRITICAL DATA QUALITY ISSUE: OUTCOME Field Concatenation**
+
+When multiple patients are involved in a single report (same MDR_REPORT_KEY), the OUTCOME and TREATMENT fields concatenate sequentially across patients, causing serious overcounting.
+
+**The Problem**:
+```
+MDR_REPORT_KEY | PATIENT_SEQ | SEQUENCE_NUMBER_OUTCOME
+1234567        | 1           | D
+1234567        | 2           | D;H         ← Contains patient 1's + patient 2's outcomes
+1234567        | 3           | D;H;L       ← Contains ALL patients' outcomes
+```
+
+Patient 3's field contains outcomes for ALL THREE patients, not just patient 3. Naive counting produces greatly inflated totals.
+
+**Impact**: Approximately X% of reports have multiple patients (varies by year and device type). Without proper handling, outcome counts can be inflated by 2-3x.
+
+**Solution - Use Provided Utilities**:
+```python
+# Safe aggregation - counts each outcome once per report
+patient_data = db.enrich_with_patient_data(results)
+outcome_summary = db.count_unique_outcomes_per_report(patient_data)
+
+# Count total deaths (avoiding concatenation inflation)
+deaths = (outcome_summary['unique_outcomes'].apply(lambda x: 'D' in x)).sum()
+print(f"Reports with at least one death: {deaths}")
+
+# Detect affected reports
+validation = db.detect_multi_patient_reports(patient_data)
+if validation['multi_patient_reports'] > 0:
+    print(f"Warning: {validation['affected_percentage']:.1f}% have multiple patients")
+```
+
+**Reference**: This issue is documented in Ensign & Cohen (2017) "A Primer to the Structure, Content and Linkage of the FDA's MAUDE Files", Tables 4a and 4b, pages 14-16.
 
 **Availability**: Only available as cumulative files:
 - Historical data: `patientthru2024.zip` (all data through previous year)
