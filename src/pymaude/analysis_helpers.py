@@ -786,7 +786,8 @@ def hierarchical_brand_standardization(results_df,
                                        specific_mapping=None,
                                        family_mapping=None,
                                        manufacturer_mapping=None,
-                                       source_col='BRAND_NAME'):
+                                       source_col='BRAND_NAME',
+                                       manufacturer_col='MANUFACTURER_D_NAME'):
     """
     Apply hierarchical brand name standardization with multiple levels.
 
@@ -807,9 +808,10 @@ def hierarchical_brand_standardization(results_df,
             Example: {'clottriever': 'Inari Medical ClotTriever (unspecified)',
                      'flowtriever': 'Inari Medical FlowTriever (unspecified)'}
         manufacturer_mapping: Dict mapping patterns to manufacturer names
-            Example: {'clottriever': 'Inari Medical',
-                     'flowtriever': 'Inari Medical'}
-        source_col: Column with original brand names (default: 'BRAND_NAME')
+            Example: {'boston': 'Boston Scientific',
+                     'inari': 'Inari Medical'}
+        source_col: Column with original brand names for model/family matching (default: 'BRAND_NAME')
+        manufacturer_col: Column to use for manufacturer matching (default: 'MANUFACTURER_D_NAME')
 
     Returns:
         DataFrame with three new columns added:
@@ -829,8 +831,8 @@ def hierarchical_brand_standardization(results_df,
         ...     'flowtriever': 'Inari Medical FlowTriever (unspecified)'
         ... }
         >>> manufacturer = {
-        ...     'clottriever': 'Inari Medical',
-        ...     'flowtriever': 'Inari Medical'
+        ...     'boston': 'Boston Scientific',
+        ...     'inari': 'Inari Medical'
         ... }
         >>> df = hierarchical_brand_standardization(
         ...     results,
@@ -848,9 +850,13 @@ def hierarchical_brand_standardization(results_df,
         - More specific patterns in each mapping should be listed first (dict order matters)
         - Pass None for any level you don't need
         - Original BRAND_NAME column is preserved unchanged
+        - Manufacturer matching uses MANUFACTURER_D_NAME by default (can be overridden)
     """
     if source_col not in results_df.columns:
         raise ValueError(f"DataFrame must contain '{source_col}' column")
+
+    if manufacturer_mapping is not None and manufacturer_col not in results_df.columns:
+        raise ValueError(f"DataFrame must contain '{manufacturer_col}' column for manufacturer matching")
 
     # Create a copy to avoid modifying the original
     df = results_df.copy()
@@ -880,21 +886,37 @@ def hierarchical_brand_standardization(results_df,
             if specific_match:
                 df.at[idx, 'device_model'] = specific_match
                 # Also set family if we can derive it from family_mapping
+                # Try matching against the brand_name first
                 if family_mapping:
                     family_match = find_match(brand_name, family_mapping)
                     if family_match:
                         df.at[idx, 'device_family'] = family_match
+                    else:
+                        # If brand_name doesn't match family pattern, try matching
+                        # against all family patterns to see if the specific model
+                        # belongs to any family (e.g., "FlowTriever T16" belongs to "FlowTriever family")
+                        for pattern, family_name in family_mapping.items():
+                            if pattern.lower() in specific_match.lower():
+                                df.at[idx, 'device_family'] = family_name
+                                break
 
         # Level 2: Try family mapping (only if no specific match found)
         if family_mapping and df.at[idx, 'device_model'] is None:
             family_match = find_match(brand_name, family_mapping)
             if family_match:
-                df.at[idx, 'device_model'] = family_match
+                # For device_model, append (unspecified) to clarify this is a family-level match
+                # Remove existing (family) suffix if present and add (family - unspecified)
+                if '(family)' in family_match.lower():
+                    model_name = family_match.replace('(family)', '(family - unspecified)').replace('(Family)', '(family - unspecified)')
+                else:
+                    model_name = f"{family_match} (unspecified)"
+                df.at[idx, 'device_model'] = model_name
                 df.at[idx, 'device_family'] = family_match
 
-        # Level 3: Try manufacturer mapping (independent of model/family)
+        # Level 3: Try manufacturer mapping (uses manufacturer_col, not brand_name)
         if manufacturer_mapping:
-            mfr_match = find_match(brand_name, manufacturer_mapping)
+            manufacturer_name = row[manufacturer_col]
+            mfr_match = find_match(manufacturer_name, manufacturer_mapping)
             if mfr_match:
                 df.at[idx, 'manufacturer'] = mfr_match
 
