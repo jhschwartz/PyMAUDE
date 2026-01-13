@@ -1334,6 +1334,12 @@ class MaudeDatabase:
             self, device_names, start_date, end_date, deduplicate, brand_column
         )
 
+    def query_device_catalog(self, device_catalog, start_date=None, end_date=None):
+        """Query devices from a catalog. See analysis_helpers module."""
+        return analysis_helpers.query_device_catalog(
+            self, device_catalog, start_date, end_date
+        )
+
     def enrich_with_problems(self, results_df):
         """Join device problem codes. See analysis_helpers module."""
         return analysis_helpers.enrich_with_problems(self, results_df)

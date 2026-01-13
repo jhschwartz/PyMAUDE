@@ -303,6 +303,156 @@ def query_multiple_devices(db, device_names, start_date=None, end_date=None,
     return combined
 
 
+def query_device_catalog(db, device_catalog, start_date=None, end_date=None):
+    """
+    Query multiple devices from a catalog with multiple search terms per device.
+
+    This helper allows you to efficiently search for a list of devices where each
+    device may have multiple brand names, generic names, and/or PMN/PMA numbers.
+    Each device's search terms are combined with OR logic (matching ANY term counts),
+    and results are deduplicated within each device to avoid counting the same report
+    multiple times.
+
+    Args:
+        db: MaudeDatabase instance
+        device_catalog: List of dicts with device search criteria:
+            [
+                {
+                    'device_id': 'CLEANER_XT',  # Your identifier for this device
+                    'search_terms': ['CLEANER XT', 'Cleaner 9mm'],  # Brand/generic names
+                    'pma_pmn_numbers': ['P180037'],  # Optional PMN/PMA numbers
+                },
+                {
+                    'device_id': 'ANGIOJET_ZELANTE',
+                    'search_terms': ['AngioJet Zelante', 'Zelante DVT'],
+                    'pma_pmn_numbers': [],  # Can be empty if none available
+                },
+                ...
+            ]
+        start_date: Optional start date (YYYY-MM-DD format)
+        end_date: Optional end date (YYYY-MM-DD format)
+
+    Returns:
+        DataFrame with all matching reports plus additional columns:
+        - device_id: Your identifier from the catalog
+        - matched_via: Which search term or PMN found this report
+        - All columns from master and device tables
+
+    Notes:
+        - Search terms use partial, case-insensitive matching (SQL LIKE)
+        - Reports matching multiple search terms for the same device are deduplicated
+        - Reports matching multiple different devices appear once per device
+        - PMN/PMA searches are exact matches
+
+    Example:
+        # Define device catalog (e.g., from a comparison table)
+        devices = [
+            {
+                'device_id': 'CLEANER_XT',
+                'search_terms': ['CLEANER XT'],
+                'pma_pmn_numbers': ['P180037']
+            },
+            {
+                'device_id': 'ANGIOJET_ZELANTE',
+                'search_terms': ['AngioJet Zelante', 'Zelante DVT'],
+                'pma_pmn_numbers': []
+            },
+        ]
+
+        # Query all devices
+        results = query_device_catalog(db, devices,
+                                      start_date='2019-01-01',
+                                      end_date='2024-12-31')
+
+        # Analyze by device
+        print(results.groupby('device_id').size())
+
+        # See which search terms found each report
+        print(results[['device_id', 'matched_via', 'BRAND_NAME']].head(10))
+    """
+    all_results = []
+
+    for device in device_catalog:
+        device_id = device.get('device_id')
+        if not device_id:
+            raise ValueError("Each device in catalog must have a 'device_id' field")
+
+        device_results = []
+
+        # Search by brand/generic names using existing partial matching
+        for term in device.get('search_terms', []):
+            if db.verbose:
+                print(f"Querying {device_id} via term: {term}...")
+
+            results = db.query_device(
+                device_name=term,
+                start_date=start_date,
+                end_date=end_date
+            )
+            if len(results) > 0:
+                results['device_id'] = device_id
+                results['matched_via'] = term
+                device_results.append(results)
+                if db.verbose:
+                    print(f"  Found {len(results)} reports")
+
+        # Search by PMN/PMA if provided
+        for pmn in device.get('pma_pmn_numbers', []):
+            if db.verbose:
+                print(f"Querying {device_id} via PMN: {pmn}...")
+
+            # Build query with optional date filters
+            date_filter = ""
+            if start_date:
+                date_filter += f" AND DATE(m.DATE_RECEIVED) >= '{start_date}'"
+            if end_date:
+                date_filter += f" AND DATE(m.DATE_RECEIVED) < DATE('{end_date}', '+1 day')"
+
+            results = db.query(f"""
+                SELECT m.*, d.*
+                FROM master m
+                JOIN device d ON m.MDR_REPORT_KEY = d.MDR_REPORT_KEY
+                WHERE m.PMA_PMN_NUM = '{pmn}'{date_filter}
+            """)
+            if len(results) > 0:
+                results['device_id'] = device_id
+                results['matched_via'] = f'PMN:{pmn}'
+                device_results.append(results)
+                if db.verbose:
+                    print(f"  Found {len(results)} reports")
+
+        # Combine and deduplicate within this device
+        if device_results:
+            device_df = pd.concat(device_results, ignore_index=True)
+            # Remove duplicate columns from m.* and d.* joins
+            device_df = device_df.loc[:, ~device_df.columns.duplicated()]
+
+            # Deduplicate by MDR_REPORT_KEY, keeping first match
+            initial_count = len(device_df)
+            device_df = device_df.drop_duplicates(subset=['MDR_REPORT_KEY'], keep='first')
+
+            if db.verbose and initial_count > len(device_df):
+                n_duplicates = initial_count - len(device_df)
+                print(f"  Removed {n_duplicates} duplicate reports for {device_id}")
+
+            all_results.append(device_df)
+
+    if not all_results:
+        if db.verbose:
+            print("\nNo reports found for any device in catalog")
+        return pd.DataFrame()
+
+    # Combine all devices
+    final_results = pd.concat(all_results, ignore_index=True)
+
+    if db.verbose:
+        print(f"\nTotal reports found: {len(final_results)}")
+        print("Breakdown by device:")
+        print(final_results.groupby('device_id').size())
+
+    return final_results
+
+
 def enrich_with_problems(db, results_df):
     """
     Join device problem codes to query results.

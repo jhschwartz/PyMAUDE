@@ -595,35 +595,98 @@ narratives = db.get_narratives(serious_keys)
 serious.to_csv('serious_events.csv', index=False)
 ```
 
-### Workflow 2: Comparative Device Study
+### Workflow 2: Comparative Device Study Using Device Catalog
 
-**Goal**: Compare safety profiles of two device types
+**Goal**: Compare safety profiles across multiple specific devices from a structured list
+
+This workflow is ideal when you have a table or list of devices to compare (e.g., from a product specification sheet, literature review, or clinical comparison table).
+
+```python
+db = MaudeDatabase('comparison.db')
+db.add_years('2019-2024', tables=['device'], download=True)
+
+# Define device catalog (e.g., from a thrombectomy device comparison table)
+devices = [
+    {
+        'device_id': 'CLEANER_XT',
+        'search_terms': ['CLEANER XT'],
+        'pma_pmn_numbers': ['P180037']
+    },
+    {
+        'device_id': 'ANGIOJET_ZELANTE',
+        'search_terms': ['AngioJet Zelante', 'Zelante DVT'],
+        'pma_pmn_numbers': []
+    },
+    {
+        'device_id': 'PENUMBRA_INDIGO',
+        'search_terms': ['Penumbra Indigo', 'Indigo System'],
+        'pma_pmn_numbers': ['P180013']
+    },
+    {
+        'device_id': 'INARI_FLOWTRIEVER',
+        'search_terms': ['FlowTriever', 'Inari FlowTriever'],
+        'pma_pmn_numbers': ['P200026']
+    },
+]
+
+# Query all devices at once
+results = db.query_device_catalog(devices, start_date='2019-01-01', end_date='2024-12-31')
+
+print(f"Total reports across all devices: {len(results)}")
+
+# Compare event counts by device
+print("\nEvent counts by device:")
+device_counts = results.groupby('device_id').size().sort_values(ascending=False)
+print(device_counts)
+
+# Compare event types across devices
+print("\nEvent type breakdown by device:")
+for device_id in results['device_id'].unique():
+    device_data = results[results['device_id'] == device_id]
+    breakdown = db.event_type_breakdown_for(device_data)
+    print(f"\n{device_id}:")
+    print(f"  Total: {breakdown['total']}")
+    print(f"  Deaths: {breakdown['deaths']}")
+    print(f"  Injuries: {breakdown['injuries']}")
+    print(f"  Malfunctions: {breakdown['malfunctions']}")
+
+# Visualize trends over time by device
+import matplotlib.pyplot as plt
+
+for device_id in results['device_id'].unique():
+    device_data = results[results['device_id'] == device_id]
+    trends = db.trends_for(device_data)
+    plt.plot(trends['year'], trends['event_count'], label=device_id, marker='o')
+
+plt.xlabel('Year')
+plt.ylabel('Event Count')
+plt.title('Adverse Events by Device Over Time')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.show()
+
+# Export for further analysis
+results.to_csv('device_comparison_results.csv', index=False)
+```
+
+**Alternative: Simple Two-Device Comparison**
+
+For comparing just two devices without a structured catalog:
 
 ```python
 db = MaudeDatabase('comparison.db')
 db.add_years('2018-2022', tables=['device'], download=True)
 
 # Get events for each device
-device_a = db.query_device(product_code='ABC')
-device_b = db.query_device(product_code='XYZ')
+device_a = db.query_device(device_name='Brand A Device')
+device_b = db.query_device(device_name='Brand B Device')
 
 # Compare event types
 print("Device A event types:")
-print(device_a['event_type'].value_counts())
+print(device_a['EVENT_TYPE'].value_counts())
 
 print("\nDevice B event types:")
-print(device_b['event_type'].value_counts())
-
-# Trend comparison
-trends_a = db.get_trends_by_year(product_code='ABC')
-trends_b = db.get_trends_by_year(product_code='XYZ')
-
-# Visualize
-import matplotlib.pyplot as plt
-plt.plot(trends_a['year'], trends_a['event_count'], label='Device A')
-plt.plot(trends_b['year'], trends_b['event_count'], label='Device B')
-plt.legend()
-plt.show()
+print(device_b['EVENT_TYPE'].value_counts())
 ```
 
 ### Workflow 3: Failure Mode Analysis

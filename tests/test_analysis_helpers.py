@@ -346,6 +346,147 @@ class TestAnalysisHelpersIntegration:
         variations = db_with_data.find_brand_variations('Test Device')
         assert len(variations) > 0
 
+    def test_query_device_catalog_basic(self, db_with_data):
+        """Test basic query_device_catalog functionality."""
+        catalog = [
+            {
+                'device_id': 'DEVICE_A',
+                'search_terms': ['Test Device A'],
+                'pma_pmn_numbers': []
+            },
+            {
+                'device_id': 'DEVICE_B',
+                'search_terms': ['Test Device B'],
+                'pma_pmn_numbers': []
+            }
+        ]
+
+        results = analysis_helpers.query_device_catalog(db_with_data, catalog)
+
+        assert len(results) > 0
+        assert 'device_id' in results.columns
+        assert 'matched_via' in results.columns
+        assert set(results['device_id'].unique()) <= {'DEVICE_A', 'DEVICE_B'}
+
+    def test_query_device_catalog_multiple_search_terms(self, db_with_data):
+        """Test catalog with multiple search terms per device."""
+        catalog = [
+            {
+                'device_id': 'DEVICE_GROUP',
+                'search_terms': ['Test Device A', 'Test Device B', 'Test Device C'],
+                'pma_pmn_numbers': []
+            }
+        ]
+
+        results = analysis_helpers.query_device_catalog(db_with_data, catalog)
+
+        assert len(results) > 0
+        assert 'device_id' in results.columns
+        assert (results['device_id'] == 'DEVICE_GROUP').all()
+        # Should have matched via different search terms
+        assert 'matched_via' in results.columns
+
+    def test_query_device_catalog_with_pmn(self, db_with_data):
+        """Test catalog search using PMN/PMA numbers."""
+        # Add PMA_PMN_NUM to master table
+        db_with_data.conn.execute("ALTER TABLE master ADD COLUMN PMA_PMN_NUM TEXT")
+        db_with_data.conn.execute("UPDATE master SET PMA_PMN_NUM = 'P123456' WHERE MDR_REPORT_KEY = 1")
+        db_with_data.conn.commit()
+
+        catalog = [
+            {
+                'device_id': 'DEVICE_WITH_PMN',
+                'search_terms': [],
+                'pma_pmn_numbers': ['P123456']
+            }
+        ]
+
+        results = analysis_helpers.query_device_catalog(db_with_data, catalog)
+
+        assert len(results) >= 1
+        assert 'device_id' in results.columns
+        assert (results['device_id'] == 'DEVICE_WITH_PMN').all()
+        # Should have one result matched via PMN
+        pmn_matches = results[results['matched_via'].str.contains('PMN:')]
+        assert len(pmn_matches) >= 1
+
+    def test_query_device_catalog_deduplication(self, db_with_data):
+        """Test that catalog deduplicates within device."""
+        catalog = [
+            {
+                'device_id': 'DEVICE_A',
+                'search_terms': ['Test Device', 'Device A'],  # Both will match same reports
+                'pma_pmn_numbers': []
+            }
+        ]
+
+        results = analysis_helpers.query_device_catalog(db_with_data, catalog)
+
+        # Should have no duplicate MDR_REPORT_KEYs within the same device
+        device_a_results = results[results['device_id'] == 'DEVICE_A']
+        assert len(device_a_results) == device_a_results['MDR_REPORT_KEY'].nunique()
+
+    def test_query_device_catalog_with_date_filters(self, db_with_data):
+        """Test catalog with date filtering."""
+        catalog = [
+            {
+                'device_id': 'DEVICE_2021',
+                'search_terms': ['Test Device'],
+                'pma_pmn_numbers': []
+            }
+        ]
+
+        results = analysis_helpers.query_device_catalog(
+            db_with_data, catalog,
+            start_date='2021-01-01',
+            end_date='2021-12-31'
+        )
+
+        # Should only get 2021 results
+        if len(results) > 0:
+            assert all(pd.to_datetime(results['DATE_RECEIVED']).dt.year == 2021)
+
+    def test_query_device_catalog_empty_results(self, db_with_data):
+        """Test catalog with no matching devices."""
+        catalog = [
+            {
+                'device_id': 'NONEXISTENT',
+                'search_terms': ['Device That Does Not Exist'],
+                'pma_pmn_numbers': []
+            }
+        ]
+
+        results = analysis_helpers.query_device_catalog(db_with_data, catalog)
+
+        assert len(results) == 0
+        assert isinstance(results, pd.DataFrame)
+
+    def test_query_device_catalog_missing_device_id(self, db_with_data):
+        """Test that missing device_id raises error."""
+        catalog = [
+            {
+                'search_terms': ['Test Device'],
+                'pma_pmn_numbers': []
+            }
+        ]
+
+        with pytest.raises(ValueError, match="must have a 'device_id' field"):
+            analysis_helpers.query_device_catalog(db_with_data, catalog)
+
+    def test_query_device_catalog_via_db_instance(self, db_with_data):
+        """Test that query_device_catalog works through database instance."""
+        catalog = [
+            {
+                'device_id': 'DEVICE_A',
+                'search_terms': ['Test Device A'],
+                'pma_pmn_numbers': []
+            }
+        ]
+
+        results = db_with_data.query_device_catalog(catalog)
+        assert len(results) > 0
+        assert 'device_id' in results.columns
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

@@ -669,6 +669,95 @@ print(f"Reports matching multiple brands: {len(multi_brand)}")
 
 ---
 
+##### `query_device_catalog(device_catalog, start_date=None, end_date=None)`
+
+Query multiple devices from a catalog with multiple search terms per device.
+
+This helper allows you to efficiently search for a list of devices where each device may have multiple brand names, generic names, and/or PMN/PMA numbers. Ideal for comparative studies where you have a structured list of devices to analyze (e.g., from a product comparison table).
+
+**Parameters**:
+- `device_catalog` (list): List of dicts with device search criteria:
+  ```python
+  [
+      {
+          'device_id': 'CLEANER_XT',  # Your identifier
+          'search_terms': ['CLEANER XT', 'Cleaner 9mm'],  # Brand/generic names
+          'pma_pmn_numbers': ['P180037'],  # Optional PMN/PMA numbers
+      },
+      ...
+  ]
+  ```
+- `start_date` (str, optional): Start date filter (YYYY-MM-DD)
+- `end_date` (str, optional): End date filter (YYYY-MM-DD)
+
+**Returns**: DataFrame with all matching reports plus additional columns:
+- `device_id`: Your identifier from the catalog
+- `matched_via`: Which search term or PMN found this report
+- All columns from master and device tables
+
+**Examples**:
+
+```python
+# Define device catalog (e.g., from a thrombectomy device comparison table)
+devices = [
+    {
+        'device_id': 'CLEANER_XT',
+        'search_terms': ['CLEANER XT'],
+        'pma_pmn_numbers': ['P180037']
+    },
+    {
+        'device_id': 'ANGIOJET_ZELANTE',
+        'search_terms': ['AngioJet Zelante', 'Zelante DVT'],
+        'pma_pmn_numbers': []  # None available
+    },
+    {
+        'device_id': 'INARI_FLOWTRIEVER',
+        'search_terms': ['FlowTriever', 'Inari FlowTriever'],
+        'pma_pmn_numbers': ['P180013']
+    },
+]
+
+# Query all devices at once
+results = db.query_device_catalog(
+    devices,
+    start_date='2019-01-01',
+    end_date='2024-12-31'
+)
+
+# Analyze by device
+print(f"Total reports: {len(results)}")
+print("\nBreakdown by device:")
+print(results.groupby('device_id').size())
+
+# See which search terms found each report
+print("\nSample of matched results:")
+print(results[['device_id', 'matched_via', 'BRAND_NAME', 'DATE_RECEIVED']].head(10))
+
+# Get event type breakdown per device
+for device_id in results['device_id'].unique():
+    device_data = results[results['device_id'] == device_id]
+    breakdown = db.event_type_breakdown_for(device_data)
+    print(f"\n{device_id}: {breakdown}")
+```
+
+**Notes**:
+- Search terms use partial, case-insensitive matching (SQL LIKE `%term%`)
+- Reports matching multiple search terms for the same device are deduplicated
+- Reports matching different devices appear once per device
+- PMN/PMA searches are exact matches
+- More efficient than manual looping through devices
+- Prints progress if `verbose=True`
+
+**Use Cases**:
+- Comparative device studies with structured device lists
+- Analyzing devices from product specification tables
+- Research where PMN/PMA numbers are available but sparse
+- Systematic review of multiple related devices
+
+**Related**: `query_multiple_devices()`, `query_device()`
+
+---
+
 #### Data Enrichment Methods
 
 These methods join additional MAUDE tables to query results.
