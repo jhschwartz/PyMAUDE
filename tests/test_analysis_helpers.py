@@ -101,7 +101,13 @@ class TestAnalysisHelpers:
         result = analysis_helpers.standardize_brand_names(df, mapping)
 
         assert 'standard_brand' in result.columns
-        assert result['standard_brand'].tolist() == ['Venovo', 'Venovo', 'Vici', 'Unknown Product', None]
+        # Check non-null values
+        assert result['standard_brand'].iloc[0] == 'Venovo'
+        assert result['standard_brand'].iloc[1] == 'Venovo'
+        assert result['standard_brand'].iloc[2] == 'Vici'
+        assert result['standard_brand'].iloc[3] == 'Unknown Product'
+        # Check null value (pandas converts None to NaN)
+        assert pd.isna(result['standard_brand'].iloc[4])
 
     def test_standardize_brand_names_custom_columns(self):
         """Test brand name standardization with custom column names."""
