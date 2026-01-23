@@ -1,0 +1,45 @@
+{
+  "name": "widget_test",
+  "version": "1.0",
+  "created_at": "2026-01-23T01:33:00.103967Z",
+  "updated_at": "2026-01-23T01:33:24.366793Z",
+  "database_path": "./test_widget.db",
+  "groups": {
+    "penumbra": {
+      "keywords": [
+        "penumbra"
+      ],
+      "created_at": "2026-01-23T01:33:19.416041Z",
+      "status": "in_progress",
+      "current_phase": "brand_name",
+      "decisions": {
+        "brand_name": {
+          "accepted": [
+            "PENUMBRA LIGHTNING FLASH"
+          ],
+          "rejected": [],
+          "deferred": [
+            "PENUMBRA",
+            "PENUMBRA INDIGO SYSTEM",
+            "PENUMBRA LIGHTNING BOLT 7",
+            "PENUMBRA RUBY COIL",
+            "PENUMBRA SMART COIL"
+          ]
+        },
+        "generic_name": {
+          "accepted": [],
+          "rejected": [],
+          "deferred": []
+        },
+        "manufacturer": {
+          "accepted": [],
+          "rejected": [],
+          "deferred": []
+        }
+      },
+      "mdr_keys_snapshot": null,
+      "snapshot_timestamp": null,
+      "notes": ""
+    }
+  }
+}

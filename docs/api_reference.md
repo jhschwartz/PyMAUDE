@@ -11,6 +11,15 @@ Complete technical reference for the `PyMAUDE` library.
   - [Helper Query Methods](#helper-query-methods)
   - [Export & Utilities](#export--utilities)
   - [Internal Methods](#internal-methods-advanced)
+- [SelectionManager Class](#selectionmanager-class)
+  - [Group Management](#group-management)
+  - [Search](#search)
+  - [Decisions](#decisions)
+  - [Phase Navigation](#phase-navigation)
+  - [Finalization](#finalization)
+  - [Persistence](#persistence)
+- [SelectionResults Class](#selectionresults-class)
+- [SelectionWidget Class](#selectionwidget-class)
 
 ---
 
@@ -1923,7 +1932,235 @@ db.add_years(2020, chunk_size=10000)  # Default is 100000
 
 ---
 
+## SelectionManager Class
+
+Manages device selection projects for reproducible MAUDE analysis. See [Selection Guide](selection_guide.md) for detailed usage.
+
+### Initialization
+
+#### `__init__(name, file_path=None, database_path=None)`
+
+Create a new selection manager or load existing project.
+
+**Parameters**:
+- `name` (str): Project identifier (alphanumeric and underscores only)
+- `file_path` (str, optional): Path to JSON file. Defaults to `{name}.selection.json`
+- `database_path` (str): Path to MAUDE database. Required for new projects.
+
+**Example**:
+```python
+from pymaude import SelectionManager
+
+# Create new project
+manager = SelectionManager('my_project', 'selections.json', 'maude.db')
+
+# Load existing project
+manager = SelectionManager.load('selections.json')
+```
+
+---
+
+### Group Management
+
+#### `create_group(group_name, keywords)`
+
+Create a new device group with search keywords.
+
+**Parameters**:
+- `group_name` (str): Group identifier
+- `keywords` (list): Search terms to match against device fields
+
+**Returns**: dict with group configuration
+
+#### `remove_group(group_name)`
+
+Remove a group from the project.
+
+#### `rename_group(old_name, new_name)`
+
+Rename an existing group.
+
+#### `merge_groups(source_groups, target_name)`
+
+Merge multiple groups into one. Combines keywords and decisions.
+
+#### `get_group_status(group_name)`
+
+Get current status of a group.
+
+**Returns**: dict with status, current_phase, decisions_count, is_finalized
+
+---
+
+### Search
+
+#### `get_search_preview(db, keywords)`
+
+Preview search results before creating a group.
+
+**Returns**: dict with counts for each field type
+
+#### `search_candidates(db, group_name, field)`
+
+Search for unique field values matching group keywords.
+
+**Parameters**:
+- `db`: MaudeDatabase instance
+- `group_name` (str): Group to search
+- `field` (str): One of 'brand_name', 'generic_name', 'manufacturer'
+
+**Returns**: DataFrame with value, mdr_count, decision columns
+
+#### `get_pending_values(db, group_name, field)`
+
+Get values that still need a decision (where decision is None).
+
+---
+
+### Decisions
+
+#### `set_decision(group_name, field, value, decision)`
+
+Set decision for a single field value.
+
+**Parameters**:
+- `group_name` (str): Group name
+- `field` (str): One of 'brand_name', 'generic_name', 'manufacturer'
+- `value` (str): The field value to decide on
+- `decision` (str): One of 'accept', 'reject', 'defer'
+
+#### `set_decisions_bulk(group_name, field, decisions)`
+
+Set decisions for multiple values at once.
+
+**Parameters**:
+- `decisions` (dict): Maps values to decisions, e.g., `{'VALUE1': 'accept', 'VALUE2': 'reject'}`
+
+---
+
+### Phase Navigation
+
+#### `advance_phase(group_name)`
+
+Move to the next phase. Returns new phase name.
+
+#### `go_back_phase(group_name)`
+
+Go back to previous phase.
+
+#### `reset_phase(group_name, field)`
+
+Clear all decisions for a specific phase.
+
+---
+
+### Finalization
+
+#### `finalize_group(db, group_name)`
+
+Finalize group by capturing MDR key snapshot.
+
+**Returns**: dict with mdr_count and pending_count
+
+#### `get_results(db, mode='decisions', groups=None)`
+
+Execute queries and return results.
+
+**Parameters**:
+- `mode` (str): 'decisions' to re-run queries, 'snapshot' for exact MDR keys
+- `groups` (list, optional): Specific groups to include
+
+**Returns**: SelectionResults object
+
+---
+
+### Persistence
+
+#### `save()`
+
+Save current state to JSON file.
+
+#### `load(file_path)` (classmethod)
+
+Load a SelectionManager from JSON file.
+
+---
+
+## SelectionResults Class
+
+DataFrame-compatible container for grouped query results.
+
+### Access Methods
+
+#### `__getitem__(group_name)`
+
+Access a group's DataFrame by name: `results['penumbra']`
+
+#### `__iter__()`
+
+Iterate over group names: `for name in results:`
+
+#### `__len__()`
+
+Number of groups: `len(results)`
+
+---
+
+### Methods
+
+#### `to_df(include_group_column=True)`
+
+Combine all groups into a single DataFrame.
+
+**Parameters**:
+- `include_group_column` (bool): Add 'selection_group' column
+
+**Returns**: Combined DataFrame
+
+#### `filter(groups=None, **kwargs)`
+
+Filter results by groups or DataFrame conditions.
+
+**Example**:
+```python
+# Filter to specific groups
+filtered = results.filter(groups=['penumbra', 'inari'])
+
+# Filter by column value
+deaths = results.filter(EVENT_TYPE='D')
+```
+
+---
+
+### Properties
+
+#### `groups`
+
+List of group names in results.
+
+#### `summary`
+
+DataFrame with quick counts per group, including overlap detection.
+
+---
+
+## SelectionWidget Class
+
+Interactive Jupyter widget for device selection. Requires ipywidgets.
+
+```python
+from pymaude.selection_widget import SelectionWidget
+
+widget = SelectionWidget(manager, db)
+widget.display()
+```
+
+See [Selection Guide](selection_guide.md) for widget usage details.
+
+---
+
 **See Also**:
 - [Getting Started Guide](getting_started.md) - Tutorial and basic usage
+- [Selection Guide](selection_guide.md) - Interactive device selection
 - [Research Guide](research_guide.md) - Research workflows and best practices
 - [Troubleshooting](troubleshooting.md) - Solutions to common problems

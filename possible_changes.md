@@ -13,6 +13,7 @@
 
 --> should integration tests spot check actual data from fda?? 
 
+--> in the widget, might need a way to investigate further the events which when you get to the end, they are still under a generic manufacturer that you can't accept or reject.
 
 
 ## Future Enhancements
