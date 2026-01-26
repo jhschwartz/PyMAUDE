@@ -239,6 +239,14 @@ class SelectionWidget:
             status['decisions_count'][p]['rejected'] for p in PHASES
         )
 
+        # Event count display (only for finalized groups)
+        event_info = ""
+        if status['is_finalized'] and status.get('event_count') is not None:
+            event_info = f" | <strong>{status['event_count']:,} events</strong>"
+        elif status['is_finalized'] and status['mdr_count'] is not None:
+            # Fallback for older snapshots without event_count
+            event_info = f" | <strong>{status['mdr_count']:,} MDRs</strong>"
+
         # Info section
         info_html = widgets.HTML(f"""
             <div style='padding: 10px; background: #f8f9fa; border-radius: 5px; margin: 5px 0;'>
@@ -249,7 +257,7 @@ class SelectionWidget:
                     Keywords: {', '.join(group['keywords'][:3])}{'...' if len(group['keywords']) > 3 else ''}
                 </div>
                 <div style='font-size: 12px;'>
-                    {status_text} |
+                    {status_text}{event_info} |
                     <span style='color: green;'>{total_accepted} accepted</span> |
                     <span style='color: red;'>{total_rejected} rejected</span>
                 </div>
@@ -327,8 +335,8 @@ class SelectionWidget:
         self._add_group_output = widgets.Output()
 
         # Buttons
-        cancel_btn = widgets.Button(description='Cancel')
-        cancel_btn.on_click(lambda _: self._navigate_to('main'))
+        home_btn = widgets.Button(description='🏠 Home')
+        home_btn.on_click(self._on_home_from_add_group)
 
         proceed_btn = widgets.Button(
             description='Proceed to Selection',
@@ -341,7 +349,7 @@ class SelectionWidget:
             keywords_label,
             self._keywords_input,
             group_name_section,
-            widgets.HBox([cancel_btn, proceed_btn]),
+            widgets.HBox([home_btn, proceed_btn]),
             self._add_group_output
         ])
 
@@ -372,6 +380,24 @@ class SelectionWidget:
             with self._add_group_output:
                 clear_output()
                 print(f"Error: {e}")
+
+    def _on_home_from_add_group(self, _):
+        """Handle Home button click from add group screen - creates group if valid, then saves."""
+        keywords_text = self._keywords_input.value.strip()
+        group_name = self._group_name_input.value.strip()
+
+        # If user entered valid keywords and group name, create the group before going home
+        if keywords_text and group_name:
+            keywords = [kw.strip() for kw in keywords_text.split(',') if kw.strip()]
+            if keywords:
+                try:
+                    self.manager.create_group(group_name, keywords)
+                except ValueError:
+                    # Group might already exist or name invalid - that's ok, just save and go home
+                    pass
+
+        self.manager.save()
+        self._navigate_to('main')
 
     # ==================== Selection Screen ====================
 
@@ -1059,11 +1085,11 @@ class SelectionWidget:
         back_btn = widgets.Button(description='Back')
         back_btn.on_click(lambda _: self._navigate_to('multi_deferred', group=group_name))
 
-        finish_btn = widgets.Button(
+        self._finish_btn = widgets.Button(
             description='Finish & Save',
             button_style='success'
         )
-        finish_btn.on_click(lambda _: self._on_finish(group_name))
+        self._finish_btn.on_click(lambda _: self._on_finish(group_name))
 
         self._finish_output = widgets.Output()
 
@@ -1071,24 +1097,37 @@ class SelectionWidget:
             header,
             summary_html,
             warning,
-            widgets.HBox([back_btn, finish_btn]),
+            widgets.HBox([back_btn, self._finish_btn]),
             self._finish_output
         ])
 
     def _on_finish(self, group_name: str):
         """Handle finish button click - finalize and return to main."""
+        # Show loading state immediately
+        self._finish_btn.disabled = True
+        self._finish_btn.description = 'Saving...'
+
         with self._finish_output:
             clear_output()
-            try:
-                result = self.manager.finalize_group(self.db, group_name)
-                self.manager.save()
+            print("Finalizing group and capturing MDR keys...")
+
+        try:
+            result = self.manager.finalize_group(self.db, group_name)
+            self.manager.save()
+            with self._finish_output:
+                clear_output()
                 print(f"Group finalized!")
-                print(f"  - {result['mdr_count']} MDRs captured")
+                print(f"  - {result['event_count']} events captured ({result['mdr_count']} unique MDRs)")
                 if result['pending_count'] > 0:
                     print(f"  - {result['pending_count']} deferred values excluded")
-            except Exception as e:
+        except Exception as e:
+            with self._finish_output:
+                clear_output()
                 print(f"Error finalizing: {e}")
-                return
+            # Re-enable button on error
+            self._finish_btn.disabled = False
+            self._finish_btn.description = 'Finish & Save'
+            return
 
         # Return to main screen
         self._navigate_to('main')

@@ -25,6 +25,10 @@ manager = SelectionManager('my_project', 'selections.json', db.db_path)
 # Launch interactive widget
 widget = SelectionWidget(manager, db)
 widget.display()
+
+# In a separate cell (after completing selection):
+results = widget.get_results()  # Prints progress, returns SelectionResults
+df = results.to_df()
 ```
 
 ## Concepts
@@ -79,6 +83,11 @@ Searching for Penumbra thrombectomy devices:
 - Any remaining undecided MDRs appear here
 - Final chance to accept/reject
 
+**Multi-Deferred Review (Optional):**
+- After phase 3, review MDRs deferred in 2+ phases
+- See brand, generic, and manufacturer side-by-side
+- Make final accept/reject decisions for ambiguous cases
+
 ## Widget Interface
 
 ### Main Screen
@@ -118,6 +127,14 @@ Shows final counts before finalization:
 - Deferred values (will be excluded with warning)
 
 Click **Finalize Group** to snapshot MDR keys.
+
+### Multi-Deferred Review Screen
+
+After completing all three phases, you can review MDRs that were deferred multiple times:
+- Shows brand name, generic name, and manufacturer side-by-side
+- Indicates which phases each MDR was deferred in
+- Use this to make final decisions on ambiguous records
+- Navigate with pagination for large result sets
 
 ## Programmatic Usage
 
@@ -162,12 +179,24 @@ manager.save()
 
 ## Getting Results
 
+### From Widget
+
+After completing selection in the widget, get results in a separate cell:
+
+```python
+# Prints progress for each group
+results = widget.get_results()
+```
+
 ### Using Decisions (Default)
 
 Re-runs the query based on your decisions. Adapts to FDA database updates.
 
 ```python
 results = manager.get_results(db, mode='decisions')
+
+# With progress output
+results = manager.get_results(db, mode='decisions', verbose=True)
 ```
 
 ### Using Snapshot
@@ -265,6 +294,25 @@ manager.reset_phase('penumbra', 'brand_name')
 ```
 
 Clears all decisions for a phase, letting you start over.
+
+### Review Multi-Deferred MDRs
+
+Find MDRs that were deferred in multiple phases for further review:
+
+```python
+# Get MDRs deferred in 2+ phases
+multi_deferred = manager.get_multi_deferred_mdrs(db, 'penumbra', min_deferrals=2)
+
+# Returns DataFrame with columns:
+# - MDR_REPORT_KEY
+# - BRAND_NAME, GENERIC_NAME, MANUFACTURER_D_NAME
+# - defer_count (number of phases where deferred)
+# - deferred_phases (list of phase names)
+
+print(multi_deferred)
+```
+
+This is useful for identifying ambiguous records that need manual review.
 
 ## Best Practices
 

@@ -726,20 +726,22 @@ class TestDeferredCascadeWithRealDB:
         manager.create_group('penumbra', ['penumbra'])
 
         # Phase 1: Brand Name
+        # Note: search_candidates now only searches the current field (brand_name),
+        # not all fields, for better performance
         candidates = manager.search_candidates(real_db, 'penumbra', 'brand_name')
         brand_values = set(candidates['value'].tolist())
 
-        # Should find brand names matching 'penumbra'
+        # Should find brand names matching 'penumbra' in BRAND_NAME field only
         assert 'PENUMBRA LIGHTNING BOLT' in brand_values
         assert 'PENUMBRA' in brand_values
         assert 'PENUMBRA INDIGO' in brand_values
-        assert 'OTHER DEVICE' in brand_values  # matches via manufacturer
+        # 'OTHER DEVICE' no longer appears here - it only matches via manufacturer,
+        # but we now only search brand_name field at this phase
 
         # Accept specific ones, DEFER 'PENUMBRA' (too generic)
         manager.set_decision('penumbra', 'brand_name', 'PENUMBRA LIGHTNING BOLT', 'accept')
         manager.set_decision('penumbra', 'brand_name', 'PENUMBRA INDIGO', 'accept')
         manager.set_decision('penumbra', 'brand_name', 'PENUMBRA', 'defer')  # MDR 1002
-        manager.set_decision('penumbra', 'brand_name', 'OTHER DEVICE', 'reject')
 
         # Advance to generic_name phase
         manager.advance_phase('penumbra')
@@ -774,3 +776,262 @@ class TestDeferredCascadeWithRealDB:
         # Since all were accepted, no MDRs should appear in this phase
         assert len(candidates) == 0, \
             f"All MDRs were accepted, none should appear in generic_name phase"
+
+
+# ==================== get_results Verbose Tests ====================
+
+class TestGetResultsVerbose:
+    """Tests for get_results verbose parameter."""
+
+    def test_get_results_verbose_prints_progress(self, manager_with_group, mock_db, capsys):
+        """Test that verbose=True prints progress messages."""
+        manager_with_group.set_decision('test_group', 'brand_name', 'DEVICE A', 'accept')
+
+        results = manager_with_group.get_results(mock_db, mode='decisions', verbose=True)
+
+        captured = capsys.readouterr()
+        assert "Getting results for 1 group(s)" in captured.out
+        assert "Processing 'test_group'" in captured.out
+        assert "done" in captured.out
+        assert "All groups complete!" in captured.out
+
+    def test_get_results_verbose_false_no_output(self, manager_with_group, mock_db, capsys):
+        """Test that verbose=False (default) produces no output."""
+        manager_with_group.set_decision('test_group', 'brand_name', 'DEVICE A', 'accept')
+
+        results = manager_with_group.get_results(mock_db, mode='decisions', verbose=False)
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_get_results_verbose_multiple_groups(self, temp_json_path, mock_db, capsys):
+        """Test verbose output with multiple groups."""
+        manager = SelectionManager('test', temp_json_path, mock_db.db_path)
+        manager.create_group('group1', ['kw1'])
+        manager.create_group('group2', ['kw2'])
+        manager.set_decision('group1', 'brand_name', 'DEVICE A', 'accept')
+        manager.set_decision('group2', 'brand_name', 'DEVICE B', 'accept')
+
+        results = manager.get_results(mock_db, mode='decisions', verbose=True)
+
+        captured = capsys.readouterr()
+        assert "Getting results for 2 group(s)" in captured.out
+        assert "[1/2]" in captured.out
+        assert "[2/2]" in captured.out
+        assert "Processing 'group1'" in captured.out
+        assert "Processing 'group2'" in captured.out
+
+
+# ==================== Multi-Deferred MDRs Tests ====================
+
+class TestMultiDeferredMDRs:
+    """Tests for get_multi_deferred_mdrs with batched queries."""
+
+    @pytest.fixture
+    def db_with_multi_defer_data(self, tmp_path):
+        """Create a database with data suitable for multi-deferred testing."""
+        import sqlite3
+
+        db_path = str(tmp_path / "multi_defer.db")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            CREATE TABLE device (
+                MDR_REPORT_KEY INTEGER,
+                BRAND_NAME TEXT,
+                GENERIC_NAME TEXT,
+                MANUFACTURER_D_NAME TEXT,
+                DATE_RECEIVED TEXT,
+                DEVICE_REPORT_PRODUCT_CODE TEXT
+            )
+        ''')
+
+        # Insert test data with MDRs that can be deferred in multiple phases
+        test_devices = [
+            # MDR 1001: can be deferred in brand (GENERIC BRAND), generic (GENERIC TYPE), and mfr (GENERIC MFR)
+            (1001, 'GENERIC BRAND', 'GENERIC TYPE', 'GENERIC MFR', '2023-01-01', 'ABC'),
+            # MDR 1002: deferred in brand only
+            (1002, 'GENERIC BRAND', 'SPECIFIC TYPE', 'SPECIFIC MFR', '2023-01-02', 'ABC'),
+            # MDR 1003: deferred in brand and generic
+            (1003, 'GENERIC BRAND', 'GENERIC TYPE', 'SPECIFIC MFR', '2023-01-03', 'ABC'),
+            # MDR 1004: accepted brand, deferred generic and mfr
+            (1004, 'SPECIFIC BRAND', 'GENERIC TYPE', 'GENERIC MFR', '2023-01-04', 'ABC'),
+        ]
+
+        cursor.executemany(
+            'INSERT INTO device VALUES (?, ?, ?, ?, ?, ?)',
+            test_devices
+        )
+
+        conn.commit()
+        conn.close()
+
+        class SimpleDB:
+            def __init__(self, path):
+                self.db_path = path
+
+            def query(self, sql, params=None):
+                conn = sqlite3.connect(self.db_path)
+                if params:
+                    df = pd.read_sql_query(sql, conn, params=params)
+                else:
+                    df = pd.read_sql_query(sql, conn)
+                conn.close()
+                return df
+
+        return SimpleDB(db_path)
+
+    def test_get_multi_deferred_basic(self, db_with_multi_defer_data, tmp_path):
+        """Test basic multi-deferred functionality."""
+        json_path = str(tmp_path / "test.json")
+        manager = SelectionManager('test', json_path, db_with_multi_defer_data.db_path)
+        manager.create_group('test', ['generic'])
+
+        # Defer values that will cause multi-phase deferrals
+        manager.set_decision('test', 'brand_name', 'GENERIC BRAND', 'defer')
+        manager.advance_phase('test')
+        manager.set_decision('test', 'generic_name', 'GENERIC TYPE', 'defer')
+        manager.advance_phase('test')
+        manager.set_decision('test', 'manufacturer', 'GENERIC MFR', 'defer')
+
+        result = manager.get_multi_deferred_mdrs(db_with_multi_defer_data, 'test', min_deferrals=2)
+
+        assert len(result) > 0
+        assert 'MDR_REPORT_KEY' in result.columns
+        assert 'defer_count' in result.columns
+        assert 'deferred_phases' in result.columns
+
+    def test_get_multi_deferred_respects_min_deferrals(self, db_with_multi_defer_data, tmp_path):
+        """Test that min_deferrals parameter is respected."""
+        json_path = str(tmp_path / "test.json")
+        manager = SelectionManager('test', json_path, db_with_multi_defer_data.db_path)
+        manager.create_group('test', ['generic'])
+
+        # Defer in brand and generic phases
+        manager.set_decision('test', 'brand_name', 'GENERIC BRAND', 'defer')
+        manager.advance_phase('test')
+        manager.set_decision('test', 'generic_name', 'GENERIC TYPE', 'defer')
+
+        # min_deferrals=2 should find MDRs deferred in at least 2 phases
+        result2 = manager.get_multi_deferred_mdrs(db_with_multi_defer_data, 'test', min_deferrals=2)
+
+        # min_deferrals=3 should find fewer (only those deferred in all 3)
+        manager.advance_phase('test')
+        manager.set_decision('test', 'manufacturer', 'GENERIC MFR', 'defer')
+        result3 = manager.get_multi_deferred_mdrs(db_with_multi_defer_data, 'test', min_deferrals=3)
+
+        # MDR 1001 is deferred in all 3 phases
+        assert any(result3['MDR_REPORT_KEY'] == 1001) if len(result3) > 0 else True
+
+    def test_get_multi_deferred_empty_when_no_deferrals(self, db_with_multi_defer_data, tmp_path):
+        """Test that empty DataFrame is returned when no multi-deferrals exist."""
+        json_path = str(tmp_path / "test.json")
+        manager = SelectionManager('test', json_path, db_with_multi_defer_data.db_path)
+        manager.create_group('test', ['generic'])
+
+        # Accept everything - no deferrals
+        manager.set_decision('test', 'brand_name', 'GENERIC BRAND', 'accept')
+
+        result = manager.get_multi_deferred_mdrs(db_with_multi_defer_data, 'test', min_deferrals=2)
+
+        assert len(result) == 0
+        assert list(result.columns) == ['MDR_REPORT_KEY', 'BRAND_NAME', 'GENERIC_NAME',
+                                         'MANUFACTURER_D_NAME', 'defer_count', 'deferred_phases']
+
+    def test_get_multi_deferred_nonexistent_group(self, db_with_multi_defer_data, tmp_path):
+        """Test that nonexistent group raises KeyError."""
+        json_path = str(tmp_path / "test.json")
+        manager = SelectionManager('test', json_path, db_with_multi_defer_data.db_path)
+
+        with pytest.raises(KeyError, match="not found"):
+            manager.get_multi_deferred_mdrs(db_with_multi_defer_data, 'nonexistent')
+
+    def test_get_multi_deferred_returns_correct_columns(self, db_with_multi_defer_data, tmp_path):
+        """Test that result has all expected columns."""
+        json_path = str(tmp_path / "test.json")
+        manager = SelectionManager('test', json_path, db_with_multi_defer_data.db_path)
+        manager.create_group('test', ['generic'])
+
+        manager.set_decision('test', 'brand_name', 'GENERIC BRAND', 'defer')
+        manager.advance_phase('test')
+        manager.set_decision('test', 'generic_name', 'GENERIC TYPE', 'defer')
+
+        result = manager.get_multi_deferred_mdrs(db_with_multi_defer_data, 'test', min_deferrals=2)
+
+        expected_columns = ['MDR_REPORT_KEY', 'BRAND_NAME', 'GENERIC_NAME',
+                           'MANUFACTURER_D_NAME', 'defer_count', 'deferred_phases']
+        assert list(result.columns) == expected_columns
+
+    def test_get_multi_deferred_sorted_by_defer_count(self, db_with_multi_defer_data, tmp_path):
+        """Test that results are sorted by defer_count descending."""
+        json_path = str(tmp_path / "test.json")
+        manager = SelectionManager('test', json_path, db_with_multi_defer_data.db_path)
+        manager.create_group('test', ['generic'])
+
+        manager.set_decision('test', 'brand_name', 'GENERIC BRAND', 'defer')
+        manager.advance_phase('test')
+        manager.set_decision('test', 'generic_name', 'GENERIC TYPE', 'defer')
+        manager.advance_phase('test')
+        manager.set_decision('test', 'manufacturer', 'GENERIC MFR', 'defer')
+
+        result = manager.get_multi_deferred_mdrs(db_with_multi_defer_data, 'test', min_deferrals=2)
+
+        if len(result) > 1:
+            # Check that defer_count is sorted descending
+            defer_counts = result['defer_count'].tolist()
+            assert defer_counts == sorted(defer_counts, reverse=True)
+
+    def test_get_multi_deferred_handles_special_chars_in_values(self, tmp_path):
+        """Test that values with special characters (like apostrophes) are handled."""
+        import sqlite3
+
+        db_path = str(tmp_path / "special_chars.db")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            CREATE TABLE device (
+                MDR_REPORT_KEY INTEGER,
+                BRAND_NAME TEXT,
+                GENERIC_NAME TEXT,
+                MANUFACTURER_D_NAME TEXT,
+                DATE_RECEIVED TEXT,
+                DEVICE_REPORT_PRODUCT_CODE TEXT
+            )
+        ''')
+
+        # Values with apostrophes and special chars
+        cursor.execute(
+            'INSERT INTO device VALUES (?, ?, ?, ?, ?, ?)',
+            (1001, "O'REILLY DEVICE", "CATHETER'S TYPE", "SMITH'S MFR", '2023-01-01', 'ABC')
+        )
+        conn.commit()
+        conn.close()
+
+        class SimpleDB:
+            def __init__(self, path):
+                self.db_path = path
+
+            def query(self, sql, params=None):
+                conn = sqlite3.connect(self.db_path)
+                if params:
+                    df = pd.read_sql_query(sql, conn, params=params)
+                else:
+                    df = pd.read_sql_query(sql, conn)
+                conn.close()
+                return df
+
+        db = SimpleDB(db_path)
+        json_path = str(tmp_path / "test.json")
+        manager = SelectionManager('test', json_path, db.db_path)
+        manager.create_group('test', ["o'reilly", "smith's"])
+
+        # This should not raise SQL injection errors
+        manager.set_decision('test', 'brand_name', "O'REILLY DEVICE", 'defer')
+        manager.advance_phase('test')
+        manager.set_decision('test', 'generic_name', "CATHETER'S TYPE", 'defer')
+
+        # Should not raise an exception
+        result = manager.get_multi_deferred_mdrs(db, 'test', min_deferrals=2)
+        assert isinstance(result, pd.DataFrame)

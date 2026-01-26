@@ -2062,15 +2062,51 @@ Finalize group by capturing MDR key snapshot.
 
 **Returns**: dict with mdr_count and pending_count
 
-#### `get_results(db, mode='decisions', groups=None)`
+#### `get_results(db, mode='decisions', groups=None, verbose=False)`
 
 Execute queries and return results.
 
 **Parameters**:
 - `mode` (str): 'decisions' to re-run queries, 'snapshot' for exact MDR keys
 - `groups` (list, optional): Specific groups to include
+- `verbose` (bool, default=False): If True, print progress messages for each group
 
 **Returns**: SelectionResults object
+
+**Example**:
+```python
+# With progress output
+results = manager.get_results(db, mode='decisions', verbose=True)
+# Output:
+# Getting results for 2 group(s)...
+#   [1/2] Processing 'penumbra'... done (1523 MDRs)
+#   [2/2] Processing 'inari'... done (847 MDRs)
+# All groups complete!
+```
+
+---
+
+#### `get_multi_deferred_mdrs(db, group_name, min_deferrals=2)`
+
+Get MDRs that were deferred in multiple phases for further review.
+
+**Parameters**:
+- `db`: MaudeDatabase instance
+- `group_name` (str): Name of the group
+- `min_deferrals` (int, default=2): Minimum number of phases with deferrals
+
+**Returns**: DataFrame with columns:
+- `MDR_REPORT_KEY`: Report key
+- `BRAND_NAME`, `GENERIC_NAME`, `MANUFACTURER_D_NAME`: Device fields
+- `defer_count`: Number of phases where this MDR's values were deferred
+- `deferred_phases`: List of phase names where deferred
+
+**Example**:
+```python
+# Find MDRs deferred in 2+ phases
+multi_deferred = manager.get_multi_deferred_mdrs(db, 'penumbra')
+print(multi_deferred[['BRAND_NAME', 'defer_count', 'deferred_phases']])
+```
 
 ---
 
@@ -2148,6 +2184,8 @@ DataFrame with quick counts per group, including overlap detection.
 
 Interactive Jupyter widget for device selection. Requires ipywidgets.
 
+### Initialization
+
 ```python
 from pymaude.selection_widget import SelectionWidget
 
@@ -2155,7 +2193,59 @@ widget = SelectionWidget(manager, db)
 widget.display()
 ```
 
-See [Selection Guide](selection_guide.md) for widget usage details.
+### Methods
+
+#### `display()`
+
+Render the widget in the notebook.
+
+---
+
+#### `get_results(mode='decisions')`
+
+Get results programmatically after completing selection.
+
+**Parameters**:
+- `mode` (str): 'decisions' to re-run queries, 'snapshot' for exact MDR keys
+
+**Returns**: SelectionResults object
+
+**Note**: Prints progress messages for each group being processed. Use in a separate cell after `display()` to ensure results are available even with "Run All".
+
+**Example**:
+```python
+# In first cell:
+widget = SelectionWidget(manager, db)
+widget.display()
+
+# In second cell (after completing selection):
+results = widget.get_results()
+df = results.to_df()
+```
+
+---
+
+### Properties
+
+#### `results`
+
+The last SelectionResults returned by `get_results()`. Initially None.
+
+#### `manager`
+
+Reference to the underlying SelectionManager.
+
+#### `db`
+
+Reference to the MaudeDatabase.
+
+#### `current_screen`
+
+Current screen being displayed ('main', 'add_group', 'selection', 'multi_deferred', 'summary').
+
+---
+
+See [Selection Guide](selection_guide.md) for detailed widget usage.
 
 ---
 

@@ -47,3 +47,5 @@ notebooks/**/*.csv
 
 # Analysis 
 analysis/
+
+.claude/

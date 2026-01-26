@@ -370,12 +370,20 @@ class SelectionManager:
 
         phase_index = PHASES.index(group['current_phase']) + 1 if group['current_phase'] in PHASES else 4
 
+        # MDR count from snapshot (if finalized)
+        mdr_count = len(group['mdr_keys_snapshot']) if group['mdr_keys_snapshot'] is not None else None
+
+        # Event count from snapshot (if available - may be None for older snapshots)
+        event_count = group.get('event_count_snapshot')
+
         return {
             'status': group['status'],
             'current_phase': group['current_phase'],
             'phase_index': phase_index,
             'decisions_count': decisions_count,
             'is_finalized': group['mdr_keys_snapshot'] is not None,
+            'mdr_count': mdr_count,
+            'event_count': event_count,
             'keywords': group['keywords']
         }
 
@@ -798,7 +806,8 @@ class SelectionManager:
 
         Returns:
             dict with finalization summary:
-            - mdr_count: Number of MDRs in snapshot
+            - mdr_count: Number of unique MDRs in snapshot
+            - event_count: Number of rows (events) returned by query
             - pending_count: Number of still-deferred values (excluded)
 
         Raises:
@@ -812,6 +821,10 @@ class SelectionManager:
         # Get accepted MDR keys
         mdr_keys = self._get_accepted_mdrs(db, group_name)
 
+        # Query to get actual row count (MDRs can have multiple device rows)
+        df = self._query_by_mdr_keys(db, list(mdr_keys))
+        event_count = len(df)
+
         # Count pending (deferred values that never got decided)
         pending_count = 0
         for phase in PHASES:
@@ -819,6 +832,7 @@ class SelectionManager:
 
         # Store snapshot
         group['mdr_keys_snapshot'] = sorted(list(mdr_keys))
+        group['event_count_snapshot'] = event_count
         group['snapshot_timestamp'] = datetime.utcnow().isoformat() + 'Z'
         group['current_phase'] = 'finalized'
         group['status'] = 'complete'
@@ -827,6 +841,7 @@ class SelectionManager:
 
         return {
             'mdr_count': len(mdr_keys),
+            'event_count': event_count,
             'pending_count': pending_count
         }
 
@@ -890,7 +905,11 @@ class SelectionManager:
             results_data[group_name] = df
 
             if verbose:
-                print(f"done ({len(df)} MDRs)", flush=True)
+                unique_mdrs = df['MDR_REPORT_KEY'].nunique() if 'MDR_REPORT_KEY' in df.columns else len(df)
+                if unique_mdrs != len(df):
+                    print(f"done ({unique_mdrs} MDRs, {len(df)} rows)", flush=True)
+                else:
+                    print(f"done ({len(df)} MDRs)", flush=True)
 
         if verbose:
             print("All groups complete!", flush=True)
@@ -1082,14 +1101,32 @@ class SelectionManager:
         group = self.groups[group_name]
 
         # For each phase, get MDRs whose field value was deferred
+        # Use batched query instead of one query per value for performance
         phase_deferred = {}  # phase -> set of MDR keys
         for phase in PHASES:
             decisions = group['decisions'][phase]
-            deferred_mdrs = set()
-            for value in decisions['deferred']:
-                mdrs = self._get_mdrs_for_value(db, group_name, phase, value)
-                deferred_mdrs.update(mdrs)
-            phase_deferred[phase] = deferred_mdrs
+            deferred_values = decisions['deferred']
+
+            if not deferred_values:
+                phase_deferred[phase] = set()
+                continue
+
+            # Batch query: get all MDRs for all deferred values in one query
+            sql_col = FIELD_MAP[phase]
+            conditions = self._build_keyword_conditions(group['keywords'])
+
+            # Build IN clause with escaped values
+            escaped_values = [v.replace("'", "''") for v in deferred_values]
+            in_clause = ','.join(f"'{v}'" for v in escaped_values)
+
+            sql = f"""
+                SELECT DISTINCT MDR_REPORT_KEY
+                FROM device
+                WHERE ({conditions})
+                  AND {sql_col} IN ({in_clause})
+            """
+            result = db.query(sql)
+            phase_deferred[phase] = set(result['MDR_REPORT_KEY'].tolist())
 
         # Find MDRs deferred in multiple phases
         from collections import Counter
