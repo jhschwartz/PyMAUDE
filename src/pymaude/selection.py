@@ -381,13 +381,20 @@ class SelectionManager:
 
     # ==================== Search ====================
 
-    def get_search_preview(self, db, keywords: List[str]) -> dict:
+    def get_search_preview(
+        self,
+        db,
+        keywords: List[str],
+        progress_callback: Optional[Any] = None
+    ) -> dict:
         """
         Preview search results before creating a group.
 
         Args:
             db: MaudeDatabase instance
             keywords: List of search terms
+            progress_callback: Optional callback function(step: int, message: str)
+                              for progress updates. Steps are 1-4.
 
         Returns:
             dict with counts:
@@ -404,7 +411,18 @@ class SelectionManager:
         # Build keyword conditions
         conditions = self._build_keyword_conditions(keywords)
 
+        field_labels = {
+            'brand_name': 'brand names',
+            'generic_name': 'generic names',
+            'manufacturer': 'manufacturers'
+        }
+
+        step = 0
         for field, sql_col in FIELD_MAP.items():
+            step += 1
+            if progress_callback:
+                progress_callback(step, f"Querying {field_labels[field]}...")
+
             sql = f"""
                 SELECT COUNT(DISTINCT {sql_col}) as value_count,
                        COUNT(DISTINCT MDR_REPORT_KEY) as mdr_count
@@ -417,6 +435,10 @@ class SelectionManager:
             preview[f'{field}_mdrs'] = int(result['mdr_count'].iloc[0])
 
         # Get total unique MDRs
+        step += 1
+        if progress_callback:
+            progress_callback(step, "Counting total unique MDRs...")
+
         sql = f"""
             SELECT COUNT(DISTINCT MDR_REPORT_KEY) as total
             FROM device
@@ -431,7 +453,8 @@ class SelectionManager:
         self,
         db,
         group_name: str,
-        field: str
+        field: str,
+        progress_callback: Optional[Any] = None
     ) -> pd.DataFrame:
         """
         Search for unique field values matching group keywords.
@@ -464,14 +487,19 @@ class SelectionManager:
 
         group = self.groups[group_name]
         sql_col = FIELD_MAP[field]
+        field_label = field.replace('_', ' ')
 
-        # Build keyword conditions
-        conditions = self._build_keyword_conditions(group['keywords'])
+        # Build keyword conditions - only search the current field, not all fields
+        conditions = self._build_keyword_conditions(group['keywords'], field=field)
 
-        # Get MDRs excluded by decisions (accepted/rejected) in previous phases
+        # Step 1: Get MDRs excluded by decisions (accepted/rejected) in previous phases
+        if progress_callback:
+            progress_callback(1, "Checking previous decisions...")
         excluded_mdrs = self._get_excluded_mdrs(db, group_name, up_to_phase=field)
 
-        # Get MDRs deferred in previous phases - these MUST appear in this phase
+        # Step 2: Get MDRs deferred in previous phases - these MUST appear in this phase
+        if progress_callback:
+            progress_callback(2, "Finding deferred items...")
         deferred_mdrs = self._get_deferred_mdrs(db, group_name, up_to_phase=field)
 
         # Build exclusion clause
@@ -482,7 +510,14 @@ class SelectionManager:
             exclude_clause = f"AND MDR_REPORT_KEY NOT IN ({placeholders})"
             params = list(excluded_mdrs)
 
-        # Query 1: Find values matching keywords (excluding decided MDRs)
+        # Step 3: Query for values matching keywords (excluding decided MDRs)
+        if progress_callback:
+            progress_callback(3, f"Searching {field_label}s...")
+        import sys
+        import time as _time
+        print(f"[SelectionManager] Searching {field_label}s for group '{group_name}'...", flush=True)
+        print(f"[SelectionManager] Keywords: {group['keywords']}", file=sys.stderr, flush=True)
+        _start = _time.time()
         sql_keywords = f"""
             SELECT {sql_col} as value,
                    COUNT(DISTINCT MDR_REPORT_KEY) as mdr_count
@@ -497,6 +532,8 @@ class SelectionManager:
             result_keywords = db.query(sql_keywords, params=params)
         else:
             result_keywords = db.query(sql_keywords)
+        _elapsed = _time.time() - _start
+        print(f"[SelectionManager] Query completed in {_elapsed:.1f}s, found {len(result_keywords)} unique values", flush=True)
 
         # Query 2: Find values for deferred MDRs (may not match keywords)
         # Only needed if there are deferred MDRs and we're past the first phase
@@ -797,7 +834,8 @@ class SelectionManager:
         self,
         db,
         mode: str = 'decisions',
-        groups: Optional[List[str]] = None
+        groups: Optional[List[str]] = None,
+        verbose: bool = False
     ) -> 'SelectionResults':
         """
         Execute queries and return results for all or specified groups.
@@ -807,6 +845,7 @@ class SelectionManager:
             mode: 'decisions' to re-run from decisions (adapts to FDA updates)
                   'snapshot' to use mdr_keys_snapshot (exact reproducibility)
             groups: Optional list of group names. If None, includes all groups.
+            verbose: If True, print progress messages
 
         Returns:
             SelectionResults object with per-group DataFrames
@@ -820,10 +859,17 @@ class SelectionManager:
 
         target_groups = groups if groups else list(self.groups.keys())
         results_data = {}
+        total_groups = len(target_groups)
 
-        for group_name in target_groups:
+        if verbose:
+            print(f"Getting results for {total_groups} group(s)...", flush=True)
+
+        for i, group_name in enumerate(target_groups, 1):
             if group_name not in self.groups:
                 raise KeyError(f"Group '{group_name}' not found")
+
+            if verbose:
+                print(f"  [{i}/{total_groups}] Processing '{group_name}'...", end=' ', flush=True)
 
             group = self.groups[group_name]
 
@@ -842,6 +888,12 @@ class SelectionManager:
             # Add group identifier
             df['selection_group'] = group_name
             results_data[group_name] = df
+
+            if verbose:
+                print(f"done ({len(df)} MDRs)", flush=True)
+
+        if verbose:
+            print("All groups complete!", flush=True)
 
         return SelectionResults(results_data, self)
 
@@ -920,14 +972,28 @@ class SelectionManager:
 
     # ==================== Internal Helpers ====================
 
-    def _build_keyword_conditions(self, keywords: List[str]) -> str:
-        """Build SQL WHERE conditions for keyword matching."""
+    def _build_keyword_conditions(self, keywords: List[str], field: str = None) -> str:
+        """
+        Build SQL WHERE conditions for keyword matching.
+
+        Args:
+            keywords: List of search terms
+            field: If specified, only search this field (e.g., 'brand_name').
+                   If None, search all fields.
+        """
         conditions = []
         for kw in keywords:
-            # Escape single quotes for SQL
-            kw_escaped = kw.replace("'", "''")
-            for sql_col in FIELD_MAP.values():
-                conditions.append(f"UPPER({sql_col}) LIKE UPPER('%{kw_escaped}%')")
+            # Escape single quotes and % for SQL
+            kw_escaped = kw.replace("'", "''").replace("%", "\\%")
+            if field:
+                # Search only the specified field
+                # LIKE is case-insensitive by default in SQLite for ASCII
+                sql_col = FIELD_MAP[field]
+                conditions.append(f"{sql_col} LIKE '%{kw_escaped}%'")
+            else:
+                # Search all fields
+                for sql_col in FIELD_MAP.values():
+                    conditions.append(f"{sql_col} LIKE '%{kw_escaped}%'")
         return ' OR '.join(conditions)
 
     def _get_excluded_mdrs(
@@ -987,6 +1053,95 @@ class SelectionManager:
                 deferred.update(mdrs)
 
         return deferred
+
+    def get_multi_deferred_mdrs(
+        self,
+        db,
+        group_name: str,
+        min_deferrals: int = 2
+    ) -> pd.DataFrame:
+        """
+        Get MDRs that were deferred in multiple phases.
+
+        Returns a DataFrame with columns:
+        - MDR_REPORT_KEY
+        - BRAND_NAME
+        - GENERIC_NAME
+        - MANUFACTURER_D_NAME
+        - defer_count (number of phases where this MDR's values were deferred)
+        - deferred_phases (list of phase names where deferred)
+
+        Args:
+            db: MaudeDatabase instance
+            group_name: Name of the group
+            min_deferrals: Minimum number of phases with deferrals (default 2)
+        """
+        if group_name not in self.groups:
+            raise KeyError(f"Group '{group_name}' not found")
+
+        group = self.groups[group_name]
+
+        # For each phase, get MDRs whose field value was deferred
+        phase_deferred = {}  # phase -> set of MDR keys
+        for phase in PHASES:
+            decisions = group['decisions'][phase]
+            deferred_mdrs = set()
+            for value in decisions['deferred']:
+                mdrs = self._get_mdrs_for_value(db, group_name, phase, value)
+                deferred_mdrs.update(mdrs)
+            phase_deferred[phase] = deferred_mdrs
+
+        # Find MDRs deferred in multiple phases
+        from collections import Counter
+        mdr_defer_counts = Counter()
+        mdr_defer_phases = {}  # mdr -> list of phases
+
+        for phase, mdrs in phase_deferred.items():
+            for mdr in mdrs:
+                mdr_defer_counts[mdr] += 1
+                if mdr not in mdr_defer_phases:
+                    mdr_defer_phases[mdr] = []
+                mdr_defer_phases[mdr].append(phase)
+
+        # Filter to those with min_deferrals or more
+        multi_deferred = {
+            mdr for mdr, count in mdr_defer_counts.items()
+            if count >= min_deferrals
+        }
+
+        if not multi_deferred:
+            return pd.DataFrame(columns=[
+                'MDR_REPORT_KEY', 'BRAND_NAME', 'GENERIC_NAME',
+                'MANUFACTURER_D_NAME', 'defer_count', 'deferred_phases'
+            ])
+
+        # Get the field values for these MDRs
+        placeholders = ','.join('?' * len(multi_deferred))
+        conditions = self._build_keyword_conditions(group['keywords'])
+
+        sql = f"""
+            SELECT DISTINCT MDR_REPORT_KEY, BRAND_NAME, GENERIC_NAME, MANUFACTURER_D_NAME
+            FROM device
+            WHERE MDR_REPORT_KEY IN ({placeholders})
+              AND ({conditions})
+        """
+        result = db.query(sql, params=list(multi_deferred))
+
+        # Add defer info
+        result['defer_count'] = result['MDR_REPORT_KEY'].apply(
+            lambda x: mdr_defer_counts[x]
+        )
+        result['deferred_phases'] = result['MDR_REPORT_KEY'].apply(
+            lambda x: mdr_defer_phases.get(x, [])
+        )
+
+        # Sort by defer_count descending, then by brand name
+        result = result.sort_values(
+            ['defer_count', 'BRAND_NAME'],
+            ascending=[False, True]
+        ).reset_index(drop=True)
+
+        return result
 
     def _get_mdrs_for_value(
         self,

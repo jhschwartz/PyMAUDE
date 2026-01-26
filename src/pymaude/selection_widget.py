@@ -100,6 +100,9 @@ class SelectionWidget:
         self._decision_widgets: Dict[str, Any] = {}
         self._count_display: Optional[Any] = None
 
+        # Store results after Get Results is clicked
+        self.results = None
+
         # Main container
         self.container = widgets.VBox()
 
@@ -107,6 +110,31 @@ class SelectionWidget:
         """Render the widget in the notebook."""
         self._refresh()
         display(self.container)
+
+    def get_results(self, mode: str = 'decisions'):
+        """
+        Get results programmatically (blocking).
+
+        Use this in a separate cell after widget.display() to ensure
+        results are available even with "Run All".
+
+        Args:
+            mode: 'decisions' to re-run from decisions (adapts to FDA updates)
+                  'snapshot' to use mdr_keys_snapshot (exact reproducibility)
+
+        Returns:
+            SelectionResults object
+
+        Example:
+            widget = SelectionWidget(manager, db)
+            widget.display()
+
+            # In next cell:
+            results = widget.get_results()
+            df = results.to_df()
+        """
+        self.results = self.manager.get_results(self.db, mode=mode, verbose=True)
+        return self.results
 
     def _refresh(self):
         """Rebuild the current screen."""
@@ -118,6 +146,8 @@ class SelectionWidget:
             self.container.children = [
                 self._build_selection_screen(self.current_group, self.current_phase)
             ]
+        elif self.current_screen == 'multi_deferred':
+            self.container.children = [self._build_multi_deferred_screen(self.current_group)]
         elif self.current_screen == 'summary':
             self.container.children = [self._build_summary_screen(self.current_group)]
         elif self.current_screen == 'rename':
@@ -165,10 +195,13 @@ class SelectionWidget:
         save_btn = widgets.Button(description='Save', button_style='primary')
         save_btn.on_click(self._on_save_click)
 
-        results_btn = widgets.Button(description='Get Results')
-        results_btn.on_click(self._on_get_results_click)
-
         self._status_output = widgets.Output()
+
+        # Instruction for getting results
+        results_hint = widgets.HTML(
+            "<p style='color: gray; font-size: 12px; margin-top: 10px;'>"
+            "When done selecting, run <code>results = widget.get_results()</code> in the next cell.</p>"
+        )
 
         return widgets.VBox([
             header,
@@ -176,8 +209,9 @@ class SelectionWidget:
             widgets.HTML("<hr style='margin: 10px 0;'>"),
             widgets.VBox(group_cards),
             widgets.HTML("<hr style='margin: 10px 0;'>"),
-            widgets.HBox([save_btn, results_btn]),
-            self._status_output
+            widgets.HBox([save_btn]),
+            self._status_output,
+            results_hint
         ])
 
     def _build_group_card(self, group_name: str) -> widgets.HBox:
@@ -266,22 +300,6 @@ class SelectionWidget:
             clear_output()
             print("Saved!")
 
-    def _on_get_results_click(self, _):
-        """Handle get results button click."""
-        with self._status_output:
-            clear_output()
-            if not self.manager.groups:
-                print("No groups defined yet.")
-                return
-
-            try:
-                results = self.manager.get_results(self.db, mode='decisions')
-                print("Results retrieved successfully!")
-                print(f"\nSummary:\n{results.summary}")
-                print(f"\nAccess with: results['group_name'] or results.to_df()")
-            except Exception as e:
-                print(f"Error getting results: {e}")
-
     # ==================== Add Group Screen ====================
 
     def _build_add_group_screen(self) -> widgets.VBox:
@@ -295,12 +313,7 @@ class SelectionWidget:
             layout=widgets.Layout(width='400px', height='60px')
         )
 
-        # Preview button and area
-        preview_btn = widgets.Button(description='Search Preview')
-        self._preview_output = widgets.Output()
-        preview_btn.on_click(self._on_preview_click)
-
-        # Group name input (shown after preview)
+        # Group name input
         self._group_name_input = widgets.Text(
             placeholder='Group name (e.g., penumbra)',
             layout=widgets.Layout(width='200px')
@@ -309,6 +322,9 @@ class SelectionWidget:
             widgets.HTML("<b>Group name:</b>"),
             self._group_name_input
         ])
+
+        # Output area for error messages
+        self._add_group_output = widgets.Output()
 
         # Buttons
         cancel_btn = widgets.Button(description='Cancel')
@@ -324,37 +340,10 @@ class SelectionWidget:
             header,
             keywords_label,
             self._keywords_input,
-            preview_btn,
-            self._preview_output,
-            widgets.HTML("<hr>"),
             group_name_section,
-            widgets.HBox([cancel_btn, proceed_btn])
+            widgets.HBox([cancel_btn, proceed_btn]),
+            self._add_group_output
         ])
-
-    def _on_preview_click(self, _):
-        """Handle preview button click."""
-        with self._preview_output:
-            clear_output()
-            keywords_text = self._keywords_input.value.strip()
-            if not keywords_text:
-                print("Please enter at least one keyword.")
-                return
-
-            keywords = [kw.strip() for kw in keywords_text.split(',') if kw.strip()]
-
-            print("Searching...")
-            try:
-                preview = self.manager.get_search_preview(self.db, keywords)
-                print(f"\nPreview Results:")
-                print(f"  - {preview['brand_name_count']} unique brand names ({preview['brand_name_mdrs']} MDRs)")
-                print(f"  - {preview['generic_name_count']} unique generic names ({preview['generic_name_mdrs']} MDRs)")
-                print(f"  - {preview['manufacturer_count']} unique manufacturers ({preview['manufacturer_mdrs']} MDRs)")
-                print(f"  - ~{preview['total_unique_mdrs']} unique MDRs total")
-
-                if preview['total_unique_mdrs'] == 0:
-                    print("\nNo matches found. Try different keywords.")
-            except Exception as e:
-                print(f"Error: {e}")
 
     def _on_proceed_click(self, _):
         """Handle proceed button click."""
@@ -362,13 +351,13 @@ class SelectionWidget:
         group_name = self._group_name_input.value.strip()
 
         if not keywords_text:
-            with self._preview_output:
+            with self._add_group_output:
                 clear_output()
                 print("Please enter keywords first.")
             return
 
         if not group_name:
-            with self._preview_output:
+            with self._add_group_output:
                 clear_output()
                 print("Please enter a group name.")
             return
@@ -380,7 +369,7 @@ class SelectionWidget:
             self.manager.save()
             self._navigate_to('selection', group=group_name, phase='brand_name')
         except ValueError as e:
-            with self._preview_output:
+            with self._add_group_output:
                 clear_output()
                 print(f"Error: {e}")
 
@@ -397,15 +386,87 @@ class SelectionWidget:
             f"<h3>Group: {group_name} - {field_display} Review ({phase_idx}/3)</h3>"
         )
 
-        # Get candidates
-        try:
-            candidates_df = self.manager.search_candidates(self.db, group_name, field)
-        except Exception as e:
-            return widgets.VBox([
-                phase_header,
-                widgets.HTML(f"<p style='color: red;'>Error loading candidates: {e}</p>"),
-                widgets.Button(description='Back', on_click=lambda _: self._navigate_to('main'))
-            ])
+        # Create content container that will be updated
+        content_container = widgets.VBox([
+            widgets.HTML("<p><i>Loading... querying database</i></p>")
+        ])
+
+        # Create the outer container
+        outer = widgets.VBox([phase_header, content_container])
+
+        # Create loading indicator (hidden initially)
+        loading_indicator = widgets.HBox([
+            widgets.HTML(
+                "<div style='display: flex; align-items: center; padding: 20px;'>"
+                "<div style='border: 4px solid #f3f3f3; border-top: 4px solid #3498db; "
+                "border-radius: 50%; width: 24px; height: 24px; "
+                "animation: spin 1s linear infinite; margin-right: 12px;'></div>"
+                "<span style='font-size: 16px;'>Searching database... this may take a minute</span>"
+                "</div>"
+                "<style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>"
+            )
+        ])
+
+        # Define function to load content after display
+        def load_content(btn=None):
+            import time
+            # Disable button and show spinner
+            if btn:
+                btn.disabled = True
+                btn.description = 'Searching...'
+            content_container.children = [loading_indicator]
+
+            try:
+                candidates_df = self.manager.search_candidates(self.db, group_name, field)
+                content = self._build_selection_content(group_name, field, candidates_df)
+                content_container.children = [content]
+                # Force a slight delay and layout refresh to ensure UI updates
+                time.sleep(0.1)
+                content_container.layout.visibility = 'hidden'
+                content_container.layout.visibility = 'visible'
+            except Exception as e:
+                # Re-enable button on error
+                if btn:
+                    btn.disabled = False
+                    btn.description = 'Load Candidates'
+                err_back_btn = widgets.Button(description='Back')
+                err_back_btn.on_click(lambda _: self._navigate_to('main'))
+                retry_btn = widgets.Button(description='Retry', button_style='warning')
+                retry_btn.on_click(load_content)
+                content_container.children = [
+                    widgets.HTML(f"<p style='color: red;'><b>Error loading candidates:</b> {e}</p>"),
+                    widgets.HBox([retry_btn, err_back_btn])
+                ]
+
+        # Add a "Load" button that triggers the search
+        load_btn = widgets.Button(
+            description='Load Candidates',
+            button_style='primary',
+            icon='search'
+        )
+        load_btn.on_click(load_content)
+
+        back_btn = widgets.Button(description='Back')
+        # Go to previous phase, not main screen
+        if PHASES.index(field) == 0:
+            back_btn.on_click(lambda _: self._navigate_to('main'))
+        else:
+            back_btn.on_click(lambda _: self._go_back_phase(group_name))
+
+        content_container.children = [
+            widgets.HTML("<p>Click 'Load Candidates' to search the database.</p>"),
+            widgets.HBox([load_btn, back_btn])
+        ]
+
+        return outer
+
+    def _build_selection_content(
+        self,
+        group_name: str,
+        field: str,
+        candidates_df
+    ) -> widgets.VBox:
+        """Build the actual selection content once candidates are loaded."""
 
         if len(candidates_df) == 0:
             # No candidates in this phase
@@ -420,83 +481,56 @@ class SelectionWidget:
             back_btn.on_click(lambda _: self._go_back_phase(group_name))
 
             return widgets.VBox([
-                phase_header,
                 no_candidates,
                 widgets.HBox([back_btn, next_btn])
             ])
 
-        # Filter input with functionality
-        filter_input = widgets.Text(
-            placeholder='Filter values...',
-            layout=widgets.Layout(width='200px')
-        )
-        filter_input.observe(
-            lambda change: self._on_filter_change(change),
-            names='value'
-        )
+        # Pagination settings
+        PAGE_SIZE = 1000
+        self._current_page = 0
+        self._filter_text = ''
 
-        # Bulk action buttons
-        accept_all_btn = widgets.Button(description='Accept All Visible')
-        defer_all_btn = widgets.Button(description='Defer All Visible')
-        reject_all_btn = widgets.Button(description='Reject All Visible')
-
-        # Decision widgets for each value
-        self._decision_widgets = {}
-        self._all_decision_rows = []
-
+        # Store candidate data for lazy widget creation
+        self._candidates_data = []
         for _, row in candidates_df.iterrows():
             value = row['value']
             count = row['mdr_count']
             current_decision = row['decision']
 
-            # Determine initial selection
-            if current_decision == 'accept':
-                initial_value = 'Accept'
-            elif current_decision == 'reject':
-                initial_value = 'Reject'
-            elif current_decision == 'defer':
-                initial_value = 'Defer'
+            # Determine initial decision
+            if current_decision in ('accept', 'reject', 'defer'):
+                initial_decision = current_decision
             else:
                 # Undecided - default to defer and save it
-                initial_value = 'Defer'
+                initial_decision = 'defer'
                 self.manager.set_decision(group_name, field, value, 'defer')
 
-            # Create HORIZONTAL toggle buttons instead of vertical radio
-            toggle = widgets.ToggleButtons(
-                options=['Accept', 'Defer', 'Reject'],
-                value=initial_value,
-                button_style='',
-                layout=widgets.Layout(width='auto'),
-                style={'button_width': '70px'}
-            )
+            self._candidates_data.append({
+                'value': value,
+                'count': count,
+                'decision': initial_decision
+            })
 
-            # Store reference
-            self._decision_widgets[value] = toggle
-
-            # Handle change with count update
-            def on_change(change, v=value, f=field, g=group_name):
-                if change['name'] == 'value':
-                    decision = change['new'].lower()
-                    self.manager.set_decision(g, f, v, decision)
-                    self.manager.save()
-                    self._update_counts(g, f)
-
-            toggle.observe(on_change, names='value')
-
-            # Create row with value label
-            label = widgets.HTML(
-                f"<span style='font-family: monospace; margin-left: 10px;'><b>{value}</b></span> "
-                f"<span style='color: gray;'>({count} MDRs)</span>"
-            )
-            row_widget = widgets.HBox([toggle, label])
-            self._all_decision_rows.append((value, row_widget))
-
-        # Save after setting initial deferrals for undecided values
+        # Save after setting initial deferrals
         self.manager.save()
 
-        # Container for decision rows (will be filtered)
+        # Track created widgets (created lazily)
+        self._decision_widgets = {}
+
+        # Filter input
+        filter_input = widgets.Text(
+            placeholder='Filter values...',
+            layout=widgets.Layout(width='200px')
+        )
+
+        # Pagination controls
+        self._page_label = widgets.HTML()
+        prev_btn = widgets.Button(description='< Prev', disabled=True)
+        next_page_btn = widgets.Button(description='Next >')
+
+        # Container for decision rows
         self._decisions_container = widgets.VBox(
-            [row for _, row in self._all_decision_rows],
+            [],
             layout=widgets.Layout(
                 max_height='400px',
                 overflow_y='auto',
@@ -505,29 +539,127 @@ class SelectionWidget:
             )
         )
 
-        # Wire up bulk actions
+        def get_filtered_data():
+            """Get candidates matching current filter."""
+            if not self._filter_text:
+                return self._candidates_data
+            filter_lower = self._filter_text.lower()
+            return [c for c in self._candidates_data if filter_lower in c['value'].lower()]
+
+        def create_row_widget(candidate):
+            """Create a row widget for a candidate (lazy creation)."""
+            value = candidate['value']
+            count = candidate['count']
+
+            # Check if already created
+            if value in self._decision_widgets:
+                toggle = self._decision_widgets[value]
+            else:
+                # Create toggle buttons
+                initial_value = candidate['decision'].capitalize()
+                toggle = widgets.ToggleButtons(
+                    options=['Accept', 'Defer', 'Reject'],
+                    value=initial_value,
+                    button_style='',
+                    layout=widgets.Layout(width='auto'),
+                    style={'button_width': '60px'}
+                )
+                self._decision_widgets[value] = toggle
+
+                # Handle change
+                def on_change(change, v=value, f=field, g=group_name):
+                    if change['name'] == 'value':
+                        decision = change['new'].lower()
+                        self.manager.set_decision(g, f, v, decision)
+                        self.manager.save()
+                        self._update_counts(g, f)
+
+                toggle.observe(on_change, names='value')
+
+            label = widgets.HTML(
+                f"<span style='font-family: monospace; margin-left: 10px;'><b>{value}</b></span> "
+                f"<span style='color: gray;'>({count} MDRs)</span>"
+            )
+            return widgets.HBox(
+                [toggle, label],
+                layout=widgets.Layout(overflow='visible', min_height='32px')
+            )
+
+        def render_page():
+            """Render the current page of results."""
+            filtered = get_filtered_data()
+            total = len(filtered)
+            total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+
+            # Clamp page
+            self._current_page = max(0, min(self._current_page, total_pages - 1))
+
+            start = self._current_page * PAGE_SIZE
+            end = min(start + PAGE_SIZE, total)
+            page_data = filtered[start:end]
+
+            # Create widgets for this page
+            rows = [create_row_widget(c) for c in page_data]
+            self._decisions_container.children = rows
+
+            # Update pagination controls
+            self._page_label.value = f"<b>Page {self._current_page + 1} of {total_pages}</b> ({total} items)"
+            prev_btn.disabled = (self._current_page == 0)
+            next_page_btn.disabled = (self._current_page >= total_pages - 1)
+
+        def on_filter_change(change):
+            if change['name'] == 'value':
+                self._filter_text = change['new']
+                self._current_page = 0
+                render_page()
+
+        def on_prev(_):
+            self._current_page -= 1
+            render_page()
+
+        def on_next(_):
+            self._current_page += 1
+            render_page()
+
+        filter_input.observe(on_filter_change, names='value')
+        prev_btn.on_click(on_prev)
+        next_page_btn.on_click(on_next)
+
+        # Bulk action buttons
+        accept_all_btn = widgets.Button(description='Accept All Visible')
+        defer_all_btn = widgets.Button(description='Defer All Visible')
+        reject_all_btn = widgets.Button(description='Reject All Visible')
+
         def accept_all(_):
-            for value, toggle in self._decision_widgets.items():
-                # Only change visible ones
-                if any(value == v for v, row in self._all_decision_rows
-                       if row in self._decisions_container.children):
-                    toggle.value = 'Accept'
+            filtered = get_filtered_data()
+            start = self._current_page * PAGE_SIZE
+            end = min(start + PAGE_SIZE, len(filtered))
+            for c in filtered[start:end]:
+                if c['value'] in self._decision_widgets:
+                    self._decision_widgets[c['value']].value = 'Accept'
 
         def defer_all(_):
-            for value, toggle in self._decision_widgets.items():
-                if any(value == v for v, row in self._all_decision_rows
-                       if row in self._decisions_container.children):
-                    toggle.value = 'Defer'
+            filtered = get_filtered_data()
+            start = self._current_page * PAGE_SIZE
+            end = min(start + PAGE_SIZE, len(filtered))
+            for c in filtered[start:end]:
+                if c['value'] in self._decision_widgets:
+                    self._decision_widgets[c['value']].value = 'Defer'
 
         def reject_all(_):
-            for value, toggle in self._decision_widgets.items():
-                if any(value == v for v, row in self._all_decision_rows
-                       if row in self._decisions_container.children):
-                    toggle.value = 'Reject'
+            filtered = get_filtered_data()
+            start = self._current_page * PAGE_SIZE
+            end = min(start + PAGE_SIZE, len(filtered))
+            for c in filtered[start:end]:
+                if c['value'] in self._decision_widgets:
+                    self._decision_widgets[c['value']].value = 'Reject'
 
         accept_all_btn.on_click(accept_all)
         defer_all_btn.on_click(defer_all)
         reject_all_btn.on_click(reject_all)
+
+        # Initial render
+        render_page()
 
         # Count display (dynamic)
         self._count_display = widgets.HTML()
@@ -542,35 +674,18 @@ class SelectionWidget:
 
         next_btn = widgets.Button(description='Next Phase', button_style='primary')
         if PHASES.index(field) == len(PHASES) - 1:
-            next_btn.description = 'View Summary'
-            next_btn.on_click(lambda _: self._navigate_to('summary', group=group_name))
+            next_btn.description = 'Review Deferred'
+            next_btn.on_click(lambda _: self._navigate_to('multi_deferred', group=group_name))
         else:
             next_btn.on_click(lambda _: self._advance_phase(group_name))
 
         return widgets.VBox([
-            phase_header,
-            widgets.HBox([filter_input]),
+            widgets.HBox([filter_input, prev_btn, self._page_label, next_page_btn]),
             widgets.HBox([accept_all_btn, defer_all_btn, reject_all_btn]),
             self._decisions_container,
             self._count_display,
             widgets.HBox([back_btn, next_btn])
         ])
-
-    def _on_filter_change(self, change):
-        """Handle filter input change."""
-        filter_text = change['new'].lower()
-
-        if not filter_text:
-            # Show all rows
-            visible_rows = [row for _, row in self._all_decision_rows]
-        else:
-            # Filter rows by value
-            visible_rows = [
-                row for value, row in self._all_decision_rows
-                if filter_text in value.lower()
-            ]
-
-        self._decisions_container.children = visible_rows
 
     def _update_counts(self, group_name: str, field: str):
         """Update the decision counts display."""
@@ -606,6 +721,278 @@ class SelectionWidget:
             self._navigate_to('selection', group=group_name, phase=new_phase)
         except ValueError:
             self._navigate_to('main')
+
+    # ==================== Multi-Deferred Review Screen ====================
+
+    def _build_multi_deferred_screen(self, group_name: str) -> widgets.VBox:
+        """Build the screen for reviewing MDRs deferred in multiple phases."""
+        header = widgets.HTML(
+            f"<h3>Group: {group_name} - Multi-Deferred Review</h3>"
+            f"<p style='color: gray;'>Review MDRs that were deferred in 2+ phases. "
+            f"These are cases where brand, generic, and/or manufacturer alone weren't "
+            f"enough to decide - seeing all three together may help.</p>"
+        )
+
+        # Create content container
+        content_container = widgets.VBox([
+            widgets.HTML("<p><i>Loading multi-deferred MDRs...</i></p>")
+        ])
+
+        outer = widgets.VBox([header, content_container])
+
+        # Loading indicator
+        loading_indicator = widgets.HBox([
+            widgets.HTML(
+                "<div style='display: flex; align-items: center; padding: 20px;'>"
+                "<div style='border: 4px solid #f3f3f3; border-top: 4px solid #3498db; "
+                "border-radius: 50%; width: 24px; height: 24px; "
+                "animation: spin 1s linear infinite; margin-right: 12px;'></div>"
+                "<span style='font-size: 16px;'>Finding multi-deferred MDRs...</span>"
+                "</div>"
+                "<style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>"
+            )
+        ])
+
+        def load_content(btn=None):
+            import time
+            if btn:
+                btn.disabled = True
+                btn.description = 'Loading...'
+            content_container.children = [loading_indicator]
+
+            try:
+                multi_df = self.manager.get_multi_deferred_mdrs(self.db, group_name, min_deferrals=2)
+                content = self._build_multi_deferred_content(group_name, multi_df)
+                content_container.children = [content]
+                time.sleep(0.1)
+                content_container.layout.visibility = 'hidden'
+                content_container.layout.visibility = 'visible'
+            except Exception as e:
+                if btn:
+                    btn.disabled = False
+                    btn.description = 'Load'
+                err_back = widgets.Button(description='Back')
+                err_back.on_click(lambda _: self._navigate_to('selection', group=group_name, phase=PHASES[-1]))
+                retry_btn = widgets.Button(description='Retry', button_style='warning')
+                retry_btn.on_click(load_content)
+                content_container.children = [
+                    widgets.HTML(f"<p style='color: red;'><b>Error:</b> {e}</p>"),
+                    widgets.HBox([retry_btn, err_back])
+                ]
+
+        load_btn = widgets.Button(description='Load MDRs', button_style='primary')
+        load_btn.on_click(load_content)
+
+        back_btn = widgets.Button(description='Back')
+        back_btn.on_click(lambda _: self._navigate_to('selection', group=group_name, phase=PHASES[-1]))
+
+        content_container.children = [
+            widgets.HTML("<p>Click 'Load MDRs' to find MDRs deferred in multiple phases.</p>"),
+            widgets.HBox([load_btn, back_btn])
+        ]
+
+        return outer
+
+    def _build_multi_deferred_content(self, group_name: str, multi_df) -> widgets.VBox:
+        """Build the content for multi-deferred review."""
+        if len(multi_df) == 0:
+            no_items = widgets.HTML(
+                "<p style='font-style: italic; color: green;'>"
+                "No MDRs were deferred in multiple phases. You can proceed to summary.</p>"
+            )
+            next_btn = widgets.Button(description='View Summary', button_style='primary')
+            next_btn.on_click(lambda _: self._navigate_to('summary', group=group_name))
+
+            back_btn = widgets.Button(description='Back')
+            back_btn.on_click(lambda _: self._navigate_to('selection', group=group_name, phase=PHASES[-1]))
+
+            return widgets.VBox([no_items, widgets.HBox([back_btn, next_btn])])
+
+        # Group by unique (brand, generic, manufacturer) combinations
+        grouped = multi_df.groupby(
+            ['BRAND_NAME', 'GENERIC_NAME', 'MANUFACTURER_D_NAME'],
+            dropna=False
+        ).agg({
+            'MDR_REPORT_KEY': list,
+            'defer_count': 'first'
+        }).reset_index()
+
+        grouped['mdr_count'] = grouped['MDR_REPORT_KEY'].apply(len)
+        grouped = grouped.sort_values(['defer_count', 'mdr_count'], ascending=[False, False])
+
+        # Pagination
+        PAGE_SIZE = 10
+        self._md_current_page = 0
+        self._md_data = grouped.to_dict('records')
+        self._md_decisions = {}  # (brand, generic, mfr) -> 'accept' | 'reject'
+
+        # Container for rows
+        self._md_container = widgets.VBox(
+            [],
+            layout=widgets.Layout(
+                max_height='500px',
+                overflow_y='auto',
+                border='1px solid #ddd',
+                padding='10px'
+            )
+        )
+
+        # Page controls
+        self._md_page_label = widgets.HTML()
+        prev_btn = widgets.Button(description='< Prev', disabled=True)
+        next_page_btn = widgets.Button(description='Next >')
+
+        def render_md_page():
+            total = len(self._md_data)
+            total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+            self._md_current_page = max(0, min(self._md_current_page, total_pages - 1))
+
+            start = self._md_current_page * PAGE_SIZE
+            end = min(start + PAGE_SIZE, total)
+            page_data = self._md_data[start:end]
+
+            rows = []
+            for item in page_data:
+                brand = item['BRAND_NAME'] or '(none)'
+                generic = item['GENERIC_NAME'] or '(none)'
+                mfr = item['MANUFACTURER_D_NAME'] or '(none)'
+                mdr_count = item['mdr_count']
+                defer_count = item['defer_count']
+
+                key = (item['BRAND_NAME'], item['GENERIC_NAME'], item['MANUFACTURER_D_NAME'])
+
+                # Decision toggle
+                current = self._md_decisions.get(key, 'defer')
+                toggle = widgets.ToggleButtons(
+                    options=['Accept', 'Defer', 'Reject'],
+                    value=current.capitalize(),
+                    button_style='',
+                    layout=widgets.Layout(width='auto'),
+                    style={'button_width': '60px'}
+                )
+
+                def on_change(change, k=key):
+                    if change['name'] == 'value':
+                        self._md_decisions[k] = change['new'].lower()
+
+                toggle.observe(on_change, names='value')
+
+                # Info label
+                label = widgets.HTML(
+                    f"<div style='margin-left: 10px; font-family: monospace;'>"
+                    f"<b>Brand:</b> {brand}<br>"
+                    f"<b>Generic:</b> {generic}<br>"
+                    f"<b>Manufacturer:</b> {mfr}<br>"
+                    f"<span style='color: gray;'>({mdr_count} MDRs, deferred in {defer_count} phases)</span>"
+                    f"</div>"
+                )
+
+                row = widgets.HBox(
+                    [toggle, label],
+                    layout=widgets.Layout(
+                        border_bottom='1px solid #eee',
+                        padding='5px 0',
+                        overflow='visible'
+                    )
+                )
+                rows.append(row)
+
+            self._md_container.children = rows
+            self._md_page_label.value = f"<b>Page {self._md_current_page + 1} of {total_pages}</b> ({total} unique combinations)"
+            prev_btn.disabled = (self._md_current_page == 0)
+            next_page_btn.disabled = (self._md_current_page >= total_pages - 1)
+
+        def on_prev(_):
+            self._md_current_page -= 1
+            render_md_page()
+
+        def on_next(_):
+            self._md_current_page += 1
+            render_md_page()
+
+        prev_btn.on_click(on_prev)
+        next_page_btn.on_click(on_next)
+
+        # Bulk actions
+        accept_all_btn = widgets.Button(description='Accept All Visible')
+        reject_all_btn = widgets.Button(description='Reject All Visible')
+
+        def accept_all_visible(_):
+            start = self._md_current_page * PAGE_SIZE
+            end = min(start + PAGE_SIZE, len(self._md_data))
+            for item in self._md_data[start:end]:
+                key = (item['BRAND_NAME'], item['GENERIC_NAME'], item['MANUFACTURER_D_NAME'])
+                self._md_decisions[key] = 'accept'
+            render_md_page()
+
+        def reject_all_visible(_):
+            start = self._md_current_page * PAGE_SIZE
+            end = min(start + PAGE_SIZE, len(self._md_data))
+            for item in self._md_data[start:end]:
+                key = (item['BRAND_NAME'], item['GENERIC_NAME'], item['MANUFACTURER_D_NAME'])
+                self._md_decisions[key] = 'reject'
+            render_md_page()
+
+        accept_all_btn.on_click(accept_all_visible)
+        reject_all_btn.on_click(reject_all_visible)
+
+        # Initial render
+        render_md_page()
+
+        # Navigation
+        back_btn = widgets.Button(description='Back')
+        back_btn.on_click(lambda _: self._navigate_to('selection', group=group_name, phase=PHASES[-1]))
+
+        next_btn = widgets.Button(description='Save & View Summary', button_style='primary')
+
+        def save_and_continue(_):
+            # Apply decisions to the actual group
+            # For accepted: mark all three field values as accepted
+            # For rejected: mark all three field values as rejected
+            group = self.manager.groups[group_name]
+
+            for (brand, generic, mfr), decision in self._md_decisions.items():
+                if decision == 'accept':
+                    # Move from deferred to accepted in each phase
+                    if brand and brand in group['decisions']['brand_name']['deferred']:
+                        group['decisions']['brand_name']['deferred'].remove(brand)
+                        group['decisions']['brand_name']['accepted'].append(brand)
+                    if generic and generic in group['decisions']['generic_name']['deferred']:
+                        group['decisions']['generic_name']['deferred'].remove(generic)
+                        group['decisions']['generic_name']['accepted'].append(generic)
+                    if mfr and mfr in group['decisions']['manufacturer']['deferred']:
+                        group['decisions']['manufacturer']['deferred'].remove(mfr)
+                        group['decisions']['manufacturer']['accepted'].append(mfr)
+                elif decision == 'reject':
+                    # Move from deferred to rejected in each phase
+                    if brand and brand in group['decisions']['brand_name']['deferred']:
+                        group['decisions']['brand_name']['deferred'].remove(brand)
+                        group['decisions']['brand_name']['rejected'].append(brand)
+                    if generic and generic in group['decisions']['generic_name']['deferred']:
+                        group['decisions']['generic_name']['deferred'].remove(generic)
+                        group['decisions']['generic_name']['rejected'].append(generic)
+                    if mfr and mfr in group['decisions']['manufacturer']['deferred']:
+                        group['decisions']['manufacturer']['deferred'].remove(mfr)
+                        group['decisions']['manufacturer']['rejected'].append(mfr)
+
+            self.manager.save()
+            self._navigate_to('summary', group=group_name)
+
+        next_btn.on_click(save_and_continue)
+
+        # Count summary
+        count_html = widgets.HTML(
+            f"<p><b>{len(multi_df)} MDRs</b> in <b>{len(grouped)} unique combinations</b> "
+            f"were deferred in multiple phases.</p>"
+        )
+
+        return widgets.VBox([
+            count_html,
+            widgets.HBox([prev_btn, self._md_page_label, next_page_btn]),
+            widgets.HBox([accept_all_btn, reject_all_btn]),
+            self._md_container,
+            widgets.HBox([back_btn, next_btn])
+        ])
 
     # ==================== Summary Screen ====================
 
@@ -669,8 +1056,8 @@ class SelectionWidget:
             )
 
         # Single "Finish" button instead of separate finalize/done
-        back_btn = widgets.Button(description='Back to Edit')
-        back_btn.on_click(lambda _: self._navigate_to('selection', group=group_name, phase=PHASES[-1]))
+        back_btn = widgets.Button(description='Back')
+        back_btn.on_click(lambda _: self._navigate_to('multi_deferred', group=group_name))
 
         finish_btn = widgets.Button(
             description='Finish & Save',
