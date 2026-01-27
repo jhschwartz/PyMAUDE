@@ -23,23 +23,20 @@ A Python package for downloading, managing, and querying FDA MAUDE
 Usage:
     from pymaude import MaudeDatabase
 
+    # Basic setup
     db = MaudeDatabase('maude.db')
     db.add_years('2015-2024', tables=['master', 'device'], download=True)
+
+    # Simple query
     results = db.query_device(device_name='thrombectomy')
 
-For interactive device selection:
-    from pymaude import MaudeDatabase, SelectionManager
-    from pymaude.selection_widget import SelectionWidget
-
-    db = MaudeDatabase('maude.db')
-    manager = SelectionManager('my_project', 'selections.json', db.db_path)
-    widget = SelectionWidget(manager, db)
-    widget.display()
+    # Boolean search with AND/OR logic
+    db.create_search_index()  # One-time setup for fast searches
+    results = db.search_by_device_names([['argon', 'cleaner'], ['angiojet']])
 """
 
 from .database import MaudeDatabase
 from .metadata import TABLE_METADATA, TABLE_FILES, FDA_BASE_URL
-from .selection import SelectionManager, SelectionResults
 
 __version__ = '1.0.0'
 __author__ = 'Jacob Schwartz <jaschwa@umich.edu>'
@@ -48,6 +45,4 @@ __all__ = [
     'TABLE_METADATA',
     'TABLE_FILES',
     'FDA_BASE_URL',
-    'SelectionManager',
-    'SelectionResults',
 ]

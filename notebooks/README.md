@@ -2,135 +2,229 @@
 
 Interactive examples for the PyMAUDE library. These notebooks demonstrate real research workflows for analyzing FDA MAUDE adverse event data.
 
-## Notebooks
+**Author**: Jacob Schwartz <jaschwa@umich.edu>
+**GitHub**: jhschwartz
+**Copyright**: 2026, GNU GPL v3
 
-Run notebooks locally to use recent data and demonstrate complete helper methods.
-
-### Setup
+## Quick Start
 
 ```bash
 # From PyMAUDE directory
-cd PyMAUDE
-source venv/bin/activate  # Or: venv\Scripts\activate on Windows
-
-# Install visualization dependencies
-pip install matplotlib seaborn
-
-# Launch Jupyter
-jupyter notebook notebooks/
+cd notebooks/
+jupyter notebook
 ```
 
-## Notebook Guide
+Start with [01_getting_started.ipynb](01_getting_started.ipynb) if you're new to PyMAUDE.
 
-### Beginner Track 🟢
+## Notebooks
 
-Start here if you're new to PyMAUDE:
+### Tutorial Series (Start Here)
 
-1. **[01_getting_started.ipynb](01_getting_started.ipynb)**
-   - **Data**: 2022-2023, device + master (~300MB)
-   - **Runtime**: ~4 minutes
-   - **Learn**: Helper methods, event type breakdowns, multi-year downloads
-   - **Best for**: Understanding the full API
+These notebooks provide a comprehensive introduction to PyMAUDE's redesigned API:
 
-2. **[02_trend_analysis_visualization.ipynb](02_trend_analysis_visualization.ipynb)**
-   - **Data**: 2020-2023, device + master (~800MB)
-   - **Runtime**: ~8 minutes
-   - **Learn**: Temporal analysis, matplotlib visualizations, publication figures
-   - **Best for**: Your first real analysis
+#### **[01_getting_started.ipynb](01_getting_started.ipynb)** 🟢
+**What you'll learn:**
+- Database setup and data downloading
+- Boolean name search with `search_by_device_names()`
+- Exact-match queries with `query_device()`
+- Date filtering and result manipulation
+- Getting event narratives
+- Exporting results
 
-### Intermediate Track 🟡
+**Best for**: New users, understanding the basics
+**Data**: 2023, device + text (~200MB)
+**Runtime**: ~5 minutes
 
-Dive deeper into specific analysis patterns:
+---
 
-3. **[03_advanced_querying.ipynb](03_advanced_querying.ipynb)**
-   - **Data**: 2022-2023
-   - **Runtime**: ~6 minutes
-   - **Learn**: Complex SQL, multi-table joins, custom aggregations
-   - **Best for**: Users comfortable with SQL
+#### **[02_grouped_search.ipynb](02_grouped_search.ipynb)** 🟡
+**What you'll learn:**
+- Dict-based grouped search for device comparisons
+- Working with the `search_group` column
+- Using helper functions with grouped results
+- Handling overlapping search criteria
+- Real-world VTE device comparison example
 
-4. **[04_manufacturer_comparison.ipynb](04_manufacturer_comparison.ipynb)**
-   - **Data**: 2020-2023
-   - **Runtime**: ~8 minutes
-   - **Learn**: Comparative analysis, statistical considerations
-   - **Best for**: Safety surveillance, competitive intelligence
+**Best for**: Comparative device studies
+**Data**: 2020-2023, device (~600MB)
+**Runtime**: ~8 minutes
 
-7. **[07_helper_methods_reference.ipynb](07_helper_methods_reference.ipynb)**
-   - **Data**: 1998 + 2022 (demonstrations)
-   - **Runtime**: ~5 minutes
-   - **Learn**: Complete API reference with examples
-   - **Best for**: Quick reference while coding
+---
 
-### Advanced Track 🔴
+#### **[03_exact_queries.ipynb](03_exact_queries.ipynb)** 🟡
+**What you'll learn:**
+- Exact vs partial matching strategies
+- Querying by brand, generic name, manufacturer
+- Product code and PMA/PMN queries
+- Combining multiple search parameters
+- When to use exact queries vs boolean search
 
-For experienced researchers:
+**Best for**: Targeting specific devices
+**Data**: 2020-2023, device (~600MB)
+**Runtime**: ~6 minutes
 
-5. **[05_signal_detection.ipynb](05_signal_detection.ipynb)**
-   - **Data**: 2020-2023
-   - **Runtime**: ~10 minutes
-   - **Learn**: Temporal spike detection, proportion analysis, statistical thresholds
-   - **Best for**: Safety surveillance teams
+---
 
-6. **[06_reproducible_research_workflow.ipynb](06_reproducible_research_workflow.ipynb)**
-   - **Data**: 2020-2023
-   - **Runtime**: ~5 minutes
-   - **Learn**: Publication best practices, data provenance, archiving
-   - **Best for**: Preparing manuscripts, sharing with collaborators
+#### **[04_analysis_helpers.ipynb](04_analysis_helpers.ipynb)** 🟡
+**What you'll learn:**
+- Trend analysis with `get_trends_by_year()`
+- Summary statistics with `summarize_by_brand()`
+- Event type comparisons and chi-square tests
+- Brand name standardization (simple and hierarchical)
+- Patient data enrichment
+- Deduplication strategies
+- Visualization helpers
+
+**Best for**: Statistical analysis and visualization
+**Data**: 2020-2023, device + patient + text (~800MB)
+**Runtime**: ~10 minutes
+
+---
+
+#### **[05_advanced_workflows.ipynb](05_advanced_workflows.ipynb)** 🔴
+**What you'll learn:**
+- Post-market surveillance study design
+- Comparative device safety analysis
+- Failure mode identification from narratives
+- Manufacturer comparison
+- Regulatory signal detection (statistical process control)
+- Publication-ready exports
+
+**Best for**: Complete research workflows
+**Data**: 2018-2023, device + patient + text (~1.2GB)
+**Runtime**: ~12 minutes
+
+---
+
+### Reference & Examples
+
+#### **[boolean_search_examples.ipynb](boolean_search_examples.ipynb)**
+Comprehensive reference for boolean search functionality with 10 sections covering all search patterns, AND/OR logic, and grouped search examples.
+
+**Best for**: Quick reference while coding
+
+---
+
+#### **[widget_search.ipynb](widget_search.ipynb)**
+Legacy interactive widget for device selection (deprecated - use dict-based grouped search instead).
 
 ## Learning Paths
 
 ### I want to...
 
-**...try PyMAUDE quickly (5 min):**
-- Start: 01 → Done!
+**...get started with PyMAUDE (30 min):**
+- Path: **01 → 02**
 
-**...analyze a specific device (30 min):**
-- Path: 01 → 02
+**...analyze a specific device (1 hour):**
+- Path: **01 → 03 → 04**
 
-**...prepare a publication (2 hours):**
-- Path: 01 → 02 → 04 → 06
+**...compare multiple devices (1.5 hours):**
+- Path: **01 → 02 → 04**
 
-**...do safety surveillance (advanced):**
-- Path: 01 → 02 → 04 → 05
+**...prepare a publication (2-3 hours):**
+- Path: **01 → 02 → 04 → 05**
 
 **...learn the complete API:**
-- Path: 01 → 07 → 03
+- Path: **01 → 02 → 03 → 04 → boolean_search_examples**
 
-## Data Download Notes
+**...do safety surveillance (advanced):**
+- Path: **01 → 02 → 04 → 05**
 
-### First Run Times
+## Setup
 
-Notebooks download data from FDA on first run. Subsequent runs use cached data:
+### Installation
 
-- **Notebook 01**: ~4 min (300MB)
-- **Notebook 02-07**: ~8-10 min first run (800MB-1.5GB depending on years)
+```bash
+# Install PyMAUDE
+pip install -e ..
 
-### Data is Cached
+# Install visualization dependencies
+pip install matplotlib seaborn
 
-Downloaded data is stored in `./maude_data/` and reused across notebooks. After your first multi-year download, other notebooks run much faster.
+# Launch Jupyter
+jupyter notebook
+```
 
-### Disk Space Requirements
+### Python Path (If Needed)
 
-- Notebooks 01-02: ~500MB
-- All notebooks 01-07: ~2GB
-
-## Troubleshooting
-
-### Import Errors
-
-If you see `ModuleNotFoundError: No module named 'PyMAUDE'`:
+If you see `ModuleNotFoundError: No module named 'pymaude'`:
 
 ```python
-# Run this in the first cell:
+# Add this to the first cell of any notebook:
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path().resolve().parent / 'src'))
 ```
 
-This is already included in all notebooks but may need adjustment if you moved files.
+This is already included in all tutorial notebooks.
+
+## Data Download Notes
+
+### First Run
+
+Notebooks download data from FDA on first run. Downloaded files are cached in the database, so subsequent runs are instant:
+
+- **First run**: Downloads and processes files (~5-10 minutes depending on years)
+- **Subsequent runs**: Skips processing if file unchanged (instant!)
+
+### Disk Space Requirements
+
+- **Notebook 01**: ~500MB
+- **Notebooks 01-04**: ~1.5GB
+- **All notebooks**: ~2GB
+
+### Data is Cached
+
+Downloaded data is stored in your database file and reused across notebooks. After your first multi-year download, other notebooks run much faster.
+
+## Key API Features
+
+### Two Search Paradigms
+
+1. **Boolean name search** - `search_by_device_names()`
+   - Flexible AND/OR logic with partial matching
+   - Perfect for exploration and grouped comparisons
+   - Searches across brand, generic, manufacturer, and concatenated names
+
+2. **Exact-match query** - `query_device()`
+   - Precise field matching (case-insensitive)
+   - Perfect when you know exact device identifiers
+   - Query by brand, generic name, product code, PMA/PMN
+
+### Grouped Search (New!)
+
+Compare multiple device categories in a single query:
+
+```python
+results = db.search_by_device_names({
+    'mechanical': [['argon', 'cleaner'], 'angiojet'],
+    'aspiration': 'penumbra'
+})
+
+# Results include 'search_group' column
+# Helper functions automatically use search_group for grouping
+trends = db.get_trends_by_year(results)  # Includes group breakdown
+```
+
+### Helper Functions Use search_group by Default
+
+All analysis helpers now default to using the `search_group` column for automatic grouping:
+
+- `get_trends_by_year(results)` - Temporal trends with group breakdown
+- `summarize_by_brand(results)` - Statistics by group
+- `event_type_comparison(results)` - Compare distributions across groups
+
+## Troubleshooting
+
+### Import Errors
+
+If `from pymaude import MaudeDatabase` fails:
+1. Make sure you're in a virtual environment with PyMAUDE installed
+2. Or add the Python path fix shown above
 
 ### Matplotlib Not Found
 
-For notebooks with visualizations (03, 05, 06):
+For notebooks with visualizations:
 
 ```bash
 pip install matplotlib seaborn
@@ -141,29 +235,28 @@ pip install matplotlib seaborn
 If FDA servers are slow:
 - Try a different time of day
 - Data is cached after first download
-- Consider notebooks with less data (01-02)
+- Consider starting with notebook 01 (smaller dataset)
 
 ### Database Locked
 
 If you see "database is locked":
-- Close any open database connections
+- Close any open database connections: `db.close()`
 - Only run one notebook at a time
 - Restart Jupyter kernel
 
-## Contributing
-
-Found a bug or have suggestions for new notebooks? Please open an issue or PR at the main repository.
-
 ## Additional Resources
 
-- **[../docs/getting_started.md](../docs/getting_started.md)** - Detailed installation guide
+- **[../docs/getting_started.md](../docs/getting_started.md)** - Installation and setup guide
 - **[../docs/api_reference.md](../docs/api_reference.md)** - Complete API documentation
-- **[../docs/maude_overview.md](../docs/maude_overview.md)** - Understanding MAUDE database structure
-- **[../docs/research_guide.md](../docs/research_guide.md)** - Best practices for device research
+- **[../docs/research_guide.md](../docs/research_guide.md)** - Research best practices and workflows
 - **[../README.md](../README.md)** - Main project documentation
+
+## Contributing
+
+Found a bug or have suggestions? Please open an issue or PR at [github.com/jhschwartz/PyMAUDE](https://github.com/jhschwartz/PyMAUDE).
 
 ## Questions?
 
-- Review the [troubleshooting guide](../docs/troubleshooting.md)
-- Check [existing issues](https://github.com/yourusername/PyMAUDE/issues)
-- Open a new issue for bugs or feature requests
+- Check the [API Reference](../docs/api_reference.md) for detailed function documentation
+- Review the [Research Guide](../docs/research_guide.md) for workflow patterns
+- Open an issue on GitHub for bugs or feature requests

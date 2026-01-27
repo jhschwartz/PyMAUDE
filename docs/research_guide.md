@@ -123,8 +123,11 @@ For most research, device + text tables are sufficient.
 ### Pattern 1: Count Events Over Time
 
 ```python
-# Simple trend
-trends = db.get_trends_by_year(device_name='pacemaker')
+# Get device events first
+results = db.search_by_device_names('pacemaker')
+
+# Calculate trends from results
+trends = db.get_trends_by_year(results)
 print(trends)
 
 # Visualize
@@ -139,18 +142,23 @@ plt.show()
 ### Pattern 2: Compare Device Types
 
 ```python
-# Get events for multiple device types
-catheters = db.query_device(device_name='catheter')
-stents = db.query_device(device_name='stent')
+# Use grouped search to compare multiple device types
+results = db.search_by_device_names({
+    'catheters': 'catheter',
+    'stents': 'stent'
+})
 
-print(f"Catheter events: {len(catheters)}")
-print(f"Stent events: {len(stents)}")
+# Count by group
+counts = results.groupby('search_group').size()
+print(f"Catheter events: {counts['catheters']}")
+print(f"Stent events: {counts['stents']}")
 ```
 
 ### Pattern 3: Identify Top Generic Names
 
 ```python
-devices = db.query_device(start_date='2020-01-01', end_date='2020-12-31')
+# Search for all devices using a broad term or use exact query with product code
+devices = db.query_device(product_code='NIQ', start_date='2020-01-01', end_date='2020-12-31')
 
 # Count by generic name
 top_devices = devices['GENERIC_NAME'].value_counts().head(10)
@@ -160,7 +168,7 @@ print(top_devices)
 ### Pattern 4: Analyze Event Types
 
 ```python
-results = db.query_device(device_name='defibrillator')
+results = db.search_by_device_names('defibrillator')
 
 # Count event types
 print(results['EVENT_TYPE'].value_counts())
@@ -173,8 +181,8 @@ print(f"Serious events: {len(serious)}/{len(results)}")
 ### Pattern 5: Examine Narratives
 
 ```python
-# Get events
-events = db.query_device(device_name='thrombectomy', start_date='2020-01-01')
+# Get events (boolean search)
+events = db.search_by_device_names('thrombectomy', start_date='2020-01-01')
 
 # Sample some events
 sample_keys = events['MDR_REPORT_KEY'].sample(10).tolist()
@@ -192,7 +200,8 @@ for idx, row in narratives.iterrows():
 ### Pattern 6: Filter by Manufacturer
 
 ```python
-results = db.query_device(device_name='stent')
+# Option 1: Search then filter
+results = db.search_by_device_names('stent')
 
 # Count by manufacturer
 mfr_counts = results['manufacturer_d_name'].value_counts()
@@ -200,6 +209,9 @@ print(mfr_counts.head())
 
 # Filter to specific manufacturer
 medtronic = results[results['manufacturer_d_name'].str.contains('Medtronic', na=False, case=False)]
+
+# Option 2: Exact match query on manufacturer
+medtronic_stents = db.query_device(manufacturer_name='Medtronic', generic_name='Stent')
 ```
 
 ---
@@ -270,7 +282,7 @@ devices = db.query_device(device_name='unusual_device')
 
 ```python
 # INCORRECT - counts reports (includes duplicates)
-results = db.query_device(device_name='catheter', start_date='2022-01-01')
+results = db.search_by_device_names('catheter', start_date='2022-01-01')
 report_count = len(results['MDR_REPORT_KEY'].unique())  # WRONG!
 print(f"Events: {report_count}")  # Overcounts by ~8%
 
@@ -300,7 +312,7 @@ event_count = len(results)  # Now accurate
 **Example impact**:
 ```python
 # Real example with venous stents
-results = db.query_device(device_name='venous stent')
+results = db.search_by_device_names('venous stent')
 comparison = db.compare_report_vs_event_counts(results)
 print(comparison)
 #    report_count  event_count  inflation_pct
@@ -327,7 +339,7 @@ Patient 3's field contains ALL THREE patients' outcomes, not just patient 3's ou
 
 ```python
 # INCORRECT - naive counting inflates totals
-results = db.query_device(device_name='stent', start_date='2022-01-01')
+results = db.search_by_device_names('stent', start_date='2022-01-01')
 enriched = db.enrich_with_patient_data(results)
 
 # This counts "D" three times in example above!
@@ -385,7 +397,7 @@ print(f"Inflation: {(naive_deaths/correct_deaths - 1)*100:.1f}%")
 **Solution**: Always account for DEVICE_SEQUENCE_NUMBER.
 
 ```python
-results = db.query_device(device_name='pacemaker')
+results = db.search_by_device_names('pacemaker')
 
 # Count unique reports (events)
 report_count = results['MDR_REPORT_KEY'].nunique()
@@ -409,8 +421,11 @@ if device_count > report_count:
 
 **Example**:
 ```python
-# May miss "VENOUS STENT", "Venous Stent", "venous stent"
-results = db.query_device(device_name='venous stent')  # ✓ Handled automatically
+# Boolean search handles case-insensitivity automatically
+results = db.search_by_device_names('venous stent')  # ✓ Matches any case
+
+# Exact-match query also handles case-insensitivity
+results = db.query_device(generic_name='Venous Stent')  # ✓ Matches "VENOUS STENT", "venous stent", etc.
 
 # But raw SQL requires UPPER()
 results = db.query(
@@ -418,7 +433,7 @@ results = db.query(
 )
 ```
 
-**Solution**: PyMAUDE's `query_device()` automatically handles case-insensitive matching. If writing raw SQL, always use `UPPER()` on both sides.
+**Solution**: PyMAUDE's search methods automatically handle case-insensitive matching. If writing raw SQL, always use `UPPER()` on both sides.
 
 ---
 
@@ -578,11 +593,11 @@ db = MaudeDatabase('surveillance.db')
 # Download recent years
 db.add_years('2020-2023', tables=['device', 'text'], download=True)
 
-# Query device
-events = db.query_device(device_name='insulin pump')
+# Search for device (boolean search)
+events = db.search_by_device_names('insulin pump')
 
 # Analyze trends
-trends = db.get_trends_by_year(device_name='insulin pump')
+trends = db.get_trends_by_year(events)
 
 # Identify serious events using FDA abbreviations (D=Death, IN=Injury)
 serious = events[events['EVENT_TYPE'].str.contains(r'\bD\b|\bIN\b', case=False, na=False, regex=True)]
@@ -595,68 +610,56 @@ narratives = db.get_narratives(serious_keys)
 serious.to_csv('serious_events.csv', index=False)
 ```
 
-### Workflow 2: Comparative Device Study Using Device Catalog
+### Workflow 2: Comparative Device Study Using Grouped Search
 
-**Goal**: Compare safety profiles across multiple specific devices from a structured list
+**Goal**: Compare safety profiles across multiple specific devices
 
-This workflow is ideal when you have a table or list of devices to compare (e.g., from a product specification sheet, literature review, or clinical comparison table).
+This workflow is ideal when you have multiple devices to compare (e.g., from a product specification sheet, literature review, or clinical comparison table).
 
 ```python
 db = MaudeDatabase('comparison.db')
 db.add_years('2019-2024', tables=['device'], download=True)
 
-# Define device catalog (e.g., from a thrombectomy device comparison table)
-devices = [
-    {
-        'device_id': 'CLEANER_XT',
-        'search_terms': ['CLEANER XT'],
-        'pma_pmn_numbers': ['P180037']
-    },
-    {
-        'device_id': 'ANGIOJET_ZELANTE',
-        'search_terms': ['AngioJet Zelante', 'Zelante DVT'],
-        'pma_pmn_numbers': []
-    },
-    {
-        'device_id': 'PENUMBRA_INDIGO',
-        'search_terms': ['Penumbra Indigo', 'Indigo System'],
-        'pma_pmn_numbers': ['P180013']
-    },
-    {
-        'device_id': 'INARI_FLOWTRIEVER',
-        'search_terms': ['FlowTriever', 'Inari FlowTriever'],
-        'pma_pmn_numbers': ['P200026']
-    },
-]
+# Define device groups with search criteria
+# Use boolean AND/OR logic for complex matching
+device_groups = {
+    'cleaner_xt': [['cleaner', 'xt']],  # AND logic
+    'angiojet_zelante': ['angiojet zelante', 'zelante dvt'],  # OR logic
+    'penumbra_indigo': [['penumbra', 'indigo']],  # AND logic
+    'flowtriever': ['flowtriever', ['inari', 'flowtriever']]  # OR and AND logic
+}
 
-# Query all devices at once
-results = db.query_device_catalog(devices, start_date='2019-01-01', end_date='2024-12-31')
+# Perform grouped search
+results = db.search_by_device_names(
+    device_groups,
+    start_date='2019-01-01',
+    end_date='2024-12-31'
+)
 
 print(f"Total reports across all devices: {len(results)}")
 
-# Compare event counts by device
+# Compare event counts by device group
 print("\nEvent counts by device:")
-device_counts = results.groupby('device_id').size().sort_values(ascending=False)
+device_counts = results.groupby('search_group').size().sort_values(ascending=False)
 print(device_counts)
 
+# Use helper functions for analysis
+summary = db.summarize_by_brand(results)  # Uses search_group column automatically
+print("\nSummary statistics:")
+print(summary['counts'])
+
 # Compare event types across devices
-print("\nEvent type breakdown by device:")
-for device_id in results['device_id'].unique():
-    device_data = results[results['device_id'] == device_id]
-    breakdown = db.event_type_breakdown_for(device_data)
-    print(f"\n{device_id}:")
-    print(f"  Total: {breakdown['total']}")
-    print(f"  Deaths: {breakdown['deaths']}")
-    print(f"  Injuries: {breakdown['injuries']}")
-    print(f"  Malfunctions: {breakdown['malfunctions']}")
+comparison = db.event_type_comparison(results)  # Uses search_group column automatically
+print("\nEvent type comparison:")
+print(comparison['summary'])
 
 # Visualize trends over time by device
+trends = db.get_trends_by_year(results)  # Automatically includes search_group breakdown
 import matplotlib.pyplot as plt
 
-for device_id in results['device_id'].unique():
-    device_data = results[results['device_id'] == device_id]
-    trends = db.trends_for(device_data)
-    plt.plot(trends['year'], trends['event_count'], label=device_id, marker='o')
+for group in results['search_group'].unique():
+    group_trends = trends[trends['search_group'] == group]
+    plt.plot(group_trends['year'], group_trends['event_count'], label=group, marker='o')
 
 plt.xlabel('Year')
 plt.ylabel('Event Count')
@@ -669,24 +672,34 @@ plt.show()
 results.to_csv('device_comparison_results.csv', index=False)
 ```
 
-**Alternative: Simple Two-Device Comparison**
+**Alternative: Exact-Match Query for Known Brands**
 
-For comparing just two devices without a structured catalog:
+For comparing specific brands/models with exact matching:
 
 ```python
 db = MaudeDatabase('comparison.db')
 db.add_years('2018-2022', tables=['device'], download=True)
 
-# Get events for each device
-device_a = db.query_device(device_name='Brand A Device')
-device_b = db.query_device(device_name='Brand B Device')
+# Get events for each device using exact matching
+venovo = db.query_device(brand_name='Venovo')
+ellipsys = db.query_device(brand_name='Ellipsys')
 
 # Compare event types
-print("Device A event types:")
-print(device_a['EVENT_TYPE'].value_counts())
+print("Venovo event types:")
+print(venovo['EVENT_TYPE'].value_counts())
 
-print("\nDevice B event types:")
-print(device_b['EVENT_TYPE'].value_counts())
+print("\nEllipsys event types:")
+print(ellipsys['EVENT_TYPE'].value_counts())
+
+# Or combine for grouped analysis
+venovo['search_group'] = 'Venovo'
+ellipsys['search_group'] = 'Ellipsys'
+combined = pd.concat([venovo, ellipsys])
+
+# Use helper functions
+comparison = db.event_type_comparison(combined)
+print("\nComparative analysis:")
+print(comparison['summary'])
 ```
 
 ### Workflow 3: Failure Mode Analysis
@@ -697,8 +710,8 @@ print(device_b['EVENT_TYPE'].value_counts())
 db = MaudeDatabase('failure_modes.db')
 db.add_years('2020-2022', tables=['device', 'text'], download=True)
 
-# Get device events
-events = db.query_device(device_name='cardiac catheter')
+# Get device events (boolean search)
+events = db.search_by_device_names('cardiac catheter')
 
 # Get all narratives
 keys = events['MDR_REPORT_KEY'].tolist()
@@ -724,8 +737,11 @@ print(f"\n{len(fractures)} fracture-related events")
 db = MaudeDatabase('temporal.db')
 db.add_years('2015-2023', tables=['device'], download=True)
 
-# Get long-term trends
-trends = db.get_trends_by_year(device_name='pacemaker')
+# Get device events
+events = db.search_by_device_names('pacemaker')
+
+# Calculate trends
+trends = db.get_trends_by_year(events)
 
 # Calculate year-over-year changes
 trends['yoy_change'] = trends['event_count'].pct_change() * 100

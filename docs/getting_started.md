@@ -162,16 +162,36 @@ db.close()
 
 ### Download Parameters Explained
 
+> **⚠️ IMPORTANT:** Almost always use `download=True` for normal operation. The default of `download=False` is conservative (no surprise network activity), but it means you must explicitly opt in to downloading.
+
 ```python
 db.add_years(
     years=1998,              # Which years to download
     tables=['device'],       # Which tables (device, text, patient)
-    download=True,           # If False, only imports existing files
+    download=True,           # ALWAYS use True for normal operation
     data_dir='./maude_data', # Where to store/find ZIP files
     strict=True,             # If True, errors on missing files
     chunk_size=10000         # Rows per batch (advanced)
 )
 ```
+
+**Understanding `download=True` vs `download=False`:**
+
+The `download` flag controls whether PyMAUDE is allowed to make network requests to FDA servers:
+
+- **`download=True`** (🟢 Use this for normal work):
+  - **Smart caching:** Uses cached files if they exist, downloads only what's missing
+  - This is NOT "always download" - it's "download if needed"
+  - Subsequent runs are instant (uses cache)
+  - When you add `force_download=True`, then it re-downloads everything
+
+- **`download=False`** (🔴 Rarely needed):
+  - **Strict offline mode:** Never attempts network activity
+  - Fails immediately if required files don't exist locally
+  - Only useful for: offline work, testing with pre-downloaded files, CI/CD validation
+  - Most users will never need this
+
+**Common misconception:** Some users think `download=False` means "use my cached files." That's actually what `download=True` does by default! You only need `download=False` if you want to guarantee zero network activity.
 
 ### Year Format Examples
 
@@ -202,6 +222,66 @@ db.add_years('all', ...)        # 1991-present
 | 2015-2020 | device, text | ~500MB | ~15 minutes |
 
 Times vary by internet speed. Files are cached, so re-runs are instant.
+
+## Updating Your Database
+
+### Getting FDA Updates
+
+The FDA periodically updates their MAUDE data files, even for historical years (corrections, additional reports, etc.). If you want to check for and download any FDA updates:
+
+```python
+db = MaudeDatabase('my_maude.db')
+
+# Get fresh copies from FDA and update database
+db.update(add_new_years=False, force_download=True)
+
+db.close()
+```
+
+The `force_download=True` flag ensures you get fresh files from FDA, not cached local files. The checksum tracking will automatically detect which files actually changed and only reprocess those.
+
+**When to use this:**
+- Periodically (e.g., monthly) to catch FDA corrections
+- After FDA announces data updates
+- When you suspect your data might be outdated
+
+### Understanding Update Flags
+
+PyMAUDE provides independent flags for controlling updates:
+
+**`download`**: Allow network downloads (almost always use `True`)
+- `True`: Uses cached files when available, downloads when missing (smart default)
+- `False`: Never attempts download, fails if files missing (offline/testing only)
+- **Recommendation:** Always use `download=True` unless you specifically need offline-only mode
+
+**`force_download`**: Re-download from FDA (bypasses local zip cache)
+- Use when: FDA has updated their files and you want fresh copies
+- Requires: `download=True` (has no effect otherwise)
+- Example: `db.add_years('2020-2024', download=True, force_download=True)`
+
+**`force_refresh`**: Re-process into database (bypasses checksum tracking)
+- Use when: Rebuilding database from existing files
+- Example: `db.add_years('2020-2024', download=False, force_refresh=True)`
+
+**For most users:** Use `download=True` by default, add `force_download=True` when checking for FDA updates.
+
+### Common Update Scenarios
+
+```python
+# Scenario 1: Check for FDA updates to existing data (MOST COMMON)
+db.update(add_new_years=False, force_download=True)
+# Note: update() defaults to download=True
+
+# Scenario 2: Get FDA updates AND add any new years
+db.update(add_new_years=True, force_download=True)
+
+# Scenario 3: Just add new years using cached files (no forced re-download)
+db.update(add_new_years=True)
+
+# Scenario 4: Rebuild database from local files (offline mode)
+db.add_years('2020-2024', download=False, force_refresh=True)
+# Note: download=False means strictly local - fails if files missing
+```
 
 ## Basic Queries
 
@@ -244,15 +324,15 @@ db.close()
 
 **Note**: Use `GENERIC_NAME` (uppercase) for device table columns.
 
-### Using Query Methods
+### Using Search Methods
 
-Instead of raw SQL, use the convenience methods:
+Instead of raw SQL, use the search methods:
 
 ```python
 db = MaudeDatabase('my_maude.db')
 
-# Query by device name (partial match)
-catheters = db.query_device(device_name='catheter')
+# Search by device name (boolean search with partial matching)
+catheters = db.search_by_device_names('catheter')
 print(f"Found {len(catheters)} catheter reports")
 
 # First few rows
@@ -267,9 +347,9 @@ db.close()
 # Download multiple years first
 db.add_years('2018-2020', tables=['device'], download=True)
 
-# Query with date filter
-recent = db.query_device(
-    device_name='pacemaker',
+# Search with date filter
+recent = db.search_by_device_names(
+    'pacemaker',
     start_date='2019-01-01',
     end_date='2019-12-31'
 )
@@ -297,10 +377,11 @@ Total records:
 
 ## Working with Results
 
-Query results are returned as pandas DataFrames:
+Search results are returned as pandas DataFrames:
 
 ```python
-results = db.query_device(device_name='stent')
+# Boolean search (partial matching)
+results = db.search_by_device_names('stent')
 
 # Show first 5 rows
 print(results.head())
@@ -323,8 +404,8 @@ Download text data to get event descriptions:
 # Download text data
 db.add_years(2020, tables=['device', 'text'], download=True)
 
-# Get device events
-devices = db.query_device(device_name='defibrillator')
+# Get device events (boolean search)
+devices = db.search_by_device_names('defibrillator')
 
 # Get narratives for first 5 events
 report_keys = devices['MDR_REPORT_KEY'].head(5).tolist()

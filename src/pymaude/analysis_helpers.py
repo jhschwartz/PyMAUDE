@@ -236,223 +236,6 @@ def date_range_summary_for(results_df):
 
 # ==================== New Multi-Device Methods ====================
 
-def query_multiple_devices(db, device_names, start_date=None, end_date=None,
-                          deduplicate=True, brand_column='query_brand'):
-    """
-    Query multiple device brands and combine results.
-
-    Args:
-        db: MaudeDatabase instance
-        device_names: List of device names to query
-        start_date: Optional start date (YYYY-MM-DD)
-        end_date: Optional end date (YYYY-MM-DD)
-        deduplicate: Remove duplicate MDR_REPORT_KEYs (default: True)
-        brand_column: Column name for tracking which brand matched (default: 'query_brand')
-
-    Returns:
-        Combined DataFrame with additional columns:
-        - {brand_column}: Which search term found this report
-        - all_matching_brands: List of all brands that matched (if deduplicated)
-
-    Example:
-        brands = ['Venovo', 'Vici', 'Zilver Vena']
-        results = query_multiple_devices(db, brands, start_date='2019-01-01')
-    """
-    all_results = []
-
-    for device_name in device_names:
-        if db.verbose:
-            print(f"Querying {device_name}...")
-
-        results = db.query_device(
-            device_name=device_name,
-            start_date=start_date,
-            end_date=end_date
-        )
-
-        if len(results) > 0:
-            results[brand_column] = device_name
-            all_results.append(results)
-            if db.verbose:
-                print(f"  Found {len(results)} reports")
-
-    if not all_results:
-        if db.verbose:
-            print("\nNo reports found for any brand")
-        return pd.DataFrame()
-
-    combined = pd.concat(all_results, ignore_index=True)
-
-    # Remove duplicate column names (e.g., when query_device returns both m.* and d.*)
-    # Keep only the first occurrence of each column name
-    combined = combined.loc[:, ~combined.columns.duplicated()]
-
-    if deduplicate:
-        # Track which brands each MDR appears in
-        multi_brand_mdrs = combined.groupby('MDR_REPORT_KEY')[brand_column].apply(list)
-        combined['all_matching_brands'] = combined['MDR_REPORT_KEY'].map(multi_brand_mdrs)
-
-        # Keep first occurrence
-        initial_count = len(combined)
-        combined = combined.drop_duplicates(subset=['MDR_REPORT_KEY'], keep='first')
-
-        if db.verbose and initial_count > len(combined):
-            n_duplicates = initial_count - len(combined)
-            print(f"\nRemoved {n_duplicates} duplicate MDRs appearing in multiple brand searches")
-
-    return combined
-
-
-def query_device_catalog(db, device_catalog, start_date=None, end_date=None):
-    """
-    Query multiple devices from a catalog with multiple search terms per device.
-
-    This helper allows you to efficiently search for a list of devices where each
-    device may have multiple brand names, generic names, and/or PMN/PMA numbers.
-    Each device's search terms are combined with OR logic (matching ANY term counts),
-    and results are deduplicated within each device to avoid counting the same report
-    multiple times.
-
-    Args:
-        db: MaudeDatabase instance
-        device_catalog: List of dicts with device search criteria:
-            [
-                {
-                    'device_id': 'CLEANER_XT',  # Your identifier for this device
-                    'search_terms': ['CLEANER XT', 'Cleaner 9mm'],  # Brand/generic names
-                    'pma_pmn_numbers': ['P180037'],  # Optional PMN/PMA numbers
-                },
-                {
-                    'device_id': 'ANGIOJET_ZELANTE',
-                    'search_terms': ['AngioJet Zelante', 'Zelante DVT'],
-                    'pma_pmn_numbers': [],  # Can be empty if none available
-                },
-                ...
-            ]
-        start_date: Optional start date (YYYY-MM-DD format)
-        end_date: Optional end date (YYYY-MM-DD format)
-
-    Returns:
-        DataFrame with all matching reports plus additional columns:
-        - device_id: Your identifier from the catalog
-        - matched_via: Which search term or PMN found this report
-        - All columns from master and device tables
-
-    Notes:
-        - Search terms use partial, case-insensitive matching (SQL LIKE)
-        - Reports matching multiple search terms for the same device are deduplicated
-        - Reports matching multiple different devices appear once per device
-        - PMN/PMA searches are exact matches
-
-    Example:
-        # Define device catalog (e.g., from a comparison table)
-        devices = [
-            {
-                'device_id': 'CLEANER_XT',
-                'search_terms': ['CLEANER XT'],
-                'pma_pmn_numbers': ['P180037']
-            },
-            {
-                'device_id': 'ANGIOJET_ZELANTE',
-                'search_terms': ['AngioJet Zelante', 'Zelante DVT'],
-                'pma_pmn_numbers': []
-            },
-        ]
-
-        # Query all devices
-        results = query_device_catalog(db, devices,
-                                      start_date='2019-01-01',
-                                      end_date='2024-12-31')
-
-        # Analyze by device
-        print(results.groupby('device_id').size())
-
-        # See which search terms found each report
-        print(results[['device_id', 'matched_via', 'BRAND_NAME']].head(10))
-    """
-    all_results = []
-
-    for device in device_catalog:
-        device_id = device.get('device_id')
-        if not device_id:
-            raise ValueError("Each device in catalog must have a 'device_id' field")
-
-        device_results = []
-
-        # Search by brand/generic names using existing partial matching
-        for term in device.get('search_terms', []):
-            if db.verbose:
-                print(f"Querying {device_id} via term: {term}...")
-
-            results = db.query_device(
-                device_name=term,
-                start_date=start_date,
-                end_date=end_date
-            )
-            if len(results) > 0:
-                results['device_id'] = device_id
-                results['matched_via'] = term
-                device_results.append(results)
-                if db.verbose:
-                    print(f"  Found {len(results)} reports")
-
-        # Search by PMN/PMA if provided
-        for pmn in device.get('pma_pmn_numbers', []):
-            if db.verbose:
-                print(f"Querying {device_id} via PMN: {pmn}...")
-
-            # Build query with optional date filters
-            date_filter = ""
-            if start_date:
-                date_filter += f" AND DATE(m.DATE_RECEIVED) >= '{start_date}'"
-            if end_date:
-                date_filter += f" AND DATE(m.DATE_RECEIVED) < DATE('{end_date}', '+1 day')"
-
-            results = db.query(f"""
-                SELECT m.*, d.*
-                FROM master m
-                JOIN device d ON m.MDR_REPORT_KEY = d.MDR_REPORT_KEY
-                WHERE m.PMA_PMN_NUM = '{pmn}'{date_filter}
-            """)
-            if len(results) > 0:
-                results['device_id'] = device_id
-                results['matched_via'] = f'PMN:{pmn}'
-                device_results.append(results)
-                if db.verbose:
-                    print(f"  Found {len(results)} reports")
-
-        # Combine and deduplicate within this device
-        if device_results:
-            device_df = pd.concat(device_results, ignore_index=True)
-            # Remove duplicate columns from m.* and d.* joins
-            device_df = device_df.loc[:, ~device_df.columns.duplicated()]
-
-            # Deduplicate by MDR_REPORT_KEY, keeping first match
-            initial_count = len(device_df)
-            device_df = device_df.drop_duplicates(subset=['MDR_REPORT_KEY'], keep='first')
-
-            if db.verbose and initial_count > len(device_df):
-                n_duplicates = initial_count - len(device_df)
-                print(f"  Removed {n_duplicates} duplicate reports for {device_id}")
-
-            all_results.append(device_df)
-
-    if not all_results:
-        if db.verbose:
-            print("\nNo reports found for any device in catalog")
-        return pd.DataFrame()
-
-    # Combine all devices
-    final_results = pd.concat(all_results, ignore_index=True)
-
-    if db.verbose:
-        print(f"\nTotal reports found: {len(final_results)}")
-        print("Breakdown by device:")
-        print(final_results.groupby('device_id').size())
-
-    return final_results
-
-
 def enrich_with_problems(db, results_df):
     """
     Join device problem codes to query results.
@@ -647,26 +430,34 @@ def enrich_with_narratives(db, results_df):
     return enriched
 
 
-def summarize_by_brand(results_df, group_column='standard_brand', include_temporal=True):
+def summarize_by_brand(results_df, group_column='search_group', include_temporal=True):
     """
-    Generate summary statistics by device brand.
+    Generate summary statistics by device brand or search group.
 
     Args:
-        results_df: DataFrame from query
-        group_column: Column to group by (default: 'standard_brand')
+        results_df: DataFrame from search_by_device_names() or query_device()
+        group_column: Column to group by (default: 'search_group')
         include_temporal: Include yearly breakdowns (default: True)
 
     Returns:
         Dict with:
-            'counts': Total reports per brand (dict)
-            'event_types': Event type breakdown per brand (DataFrame)
-            'date_range': First/last report dates per brand (DataFrame)
-            'temporal': Yearly counts per brand (DataFrame, if include_temporal=True)
+            'counts': Total reports per group (dict)
+            'event_types': Event type breakdown per group (DataFrame)
+            'date_range': First/last report dates per group (DataFrame)
+            'temporal': Yearly counts per group (DataFrame, if include_temporal=True)
 
     Example:
-        summary = summarize_by_brand(results)
+        # Grouped search
+        results = db.search_by_device_names({'g1': 'argon', 'g2': 'penumbra'})
+        summary = summarize_by_brand(results)  # Uses search_group column
         print(summary['counts'])
         print(summary['temporal'])
+
+        # Custom grouping column (e.g., after brand standardization)
+        summary = summarize_by_brand(results, group_column='standard_brand')
+
+    Author: Jacob Schwartz <jaschwa@umich.edu>
+    Copyright: 2026, GNU GPL v3
     """
     if group_column not in results_df.columns:
         raise ValueError(f"DataFrame must contain '{group_column}' column")
@@ -702,46 +493,6 @@ def summarize_by_brand(results_df, group_column='standard_brand', include_tempor
 
 
 # ==================== Brand Standardization Helpers ====================
-
-def find_brand_variations(db, search_terms, max_results=50):
-    """
-    Find all brand name variations in database.
-
-    Args:
-        db: MaudeDatabase instance
-        search_terms: String or list of strings to search for
-        max_results: Maximum variations to return (default: 50)
-
-    Returns:
-        DataFrame with columns: BRAND_NAME, count, sample_mdr_keys
-
-    Example:
-        variations = find_brand_variations(db, 'venovo')
-        # Shows: VENOVO (234), Venovo (123), Venovo Venous Stent (45)
-    """
-    if isinstance(search_terms, str):
-        search_terms = [search_terms]
-
-    # Build LIKE conditions for case-insensitive search
-    conditions = " OR ".join([
-        f"UPPER(BRAND_NAME) LIKE UPPER('%{term}%')"
-        for term in search_terms
-    ])
-
-    query = f"""
-        SELECT
-            BRAND_NAME,
-            COUNT(*) as count,
-            GROUP_CONCAT(MDR_REPORT_KEY, ', ') as sample_mdr_keys
-        FROM device
-        WHERE {conditions}
-        GROUP BY BRAND_NAME
-        ORDER BY count DESC
-        LIMIT {max_results}
-    """
-
-    return pd.read_sql_query(query, db.conn)
-
 
 def standardize_brand_names(results_df, mapping_dict,
                             source_col='BRAND_NAME',
@@ -1007,20 +758,28 @@ def chi_square_test(results_df, row_var, col_var, exclude_cols=None):
     }
 
 
-def event_type_comparison(results_df, group_var='standard_brand'):
+def event_type_comparison(results_df, group_var='search_group'):
     """
     Compare event type distributions across groups.
 
     Args:
-        results_df: DataFrame with EVENT_TYPE column
-        group_var: Variable to compare across
+        results_df: DataFrame from search_by_device_names() or query_device()
+        group_var: Column to compare across (default: 'search_group')
 
     Returns:
         dict with counts, percentages, chi2_test, summary
 
     Example:
-        comparison = event_type_comparison(results, group_var='standard_brand')
+        # Grouped search
+        results = db.search_by_device_names({'g1': 'argon', 'g2': 'penumbra'})
+        comparison = event_type_comparison(results)  # Uses search_group
         print(comparison['summary'])
+
+        # Custom grouping
+        comparison = event_type_comparison(results, group_var='standard_brand')
+
+    Author: Jacob Schwartz <jaschwa@umich.edu>
+    Copyright: 2026, GNU GPL v3
     """
     if 'EVENT_TYPE' not in results_df.columns:
         raise ValueError("DataFrame must contain 'EVENT_TYPE' column")
@@ -1147,8 +906,16 @@ def plot_problem_distribution(contingency_table, output_file=None, stacked=True,
         Figure and Axes objects
 
     Example:
-        table = create_contingency_table(df, 'brand', 'category', normalize=True)
+        # Grouped search results
+        results = db.search_by_device_names({'g1': 'argon', 'g2': 'penumbra'})
+        table = create_contingency_table(results, 'search_group', 'category', normalize=True)
         fig, ax = plot_problem_distribution(table['percentages'])
+
+        # Custom xlabel
+        fig, ax = plot_problem_distribution(table['percentages'], xlabel='Custom Label')
+
+    Author: Jacob Schwartz <jaschwa@umich.edu>
+    Copyright: 2026, GNU GPL v3
     """
     fig, ax = plt.subplots(figsize=kwargs.get('figsize', (12, 6)))
 
@@ -1156,7 +923,23 @@ def plot_problem_distribution(contingency_table, output_file=None, stacked=True,
                           colormap=kwargs.get('colormap', 'Set3'),
                           edgecolor='black', linewidth=0.5)
 
-    ax.set_xlabel(kwargs.get('xlabel', 'Device Brand'), fontsize=12, fontweight='bold')
+    # Smart xlabel: use index name if available, otherwise default based on common names
+    if 'xlabel' not in kwargs:
+        index_name = contingency_table.index.name
+        if index_name == 'search_group':
+            default_xlabel = 'Search Group'
+        elif index_name == 'standard_brand':
+            default_xlabel = 'Device Brand'
+        elif index_name:
+            # Capitalize and replace underscores
+            default_xlabel = index_name.replace('_', ' ').title()
+        else:
+            default_xlabel = 'Group'
+        xlabel = default_xlabel
+    else:
+        xlabel = kwargs['xlabel']
+
+    ax.set_xlabel(xlabel, fontsize=12, fontweight='bold')
     ylabel = 'Percentage (%)' if stacked else 'Count'
     ax.set_ylabel(kwargs.get('ylabel', ylabel), fontsize=12, fontweight='bold')
     ax.set_title(kwargs.get('title', 'Problem Distribution by Device'),
@@ -1185,7 +968,7 @@ def export_publication_figures(db, results_df, output_dir, prefix='figure',
 
     Args:
         db: MaudeDatabase instance (for checking available data)
-        results_df: Results DataFrame
+        results_df: Results DataFrame from search_by_device_names() or query_device()
         output_dir: Output directory path
         prefix: Filename prefix
         formats: List of output formats
@@ -1195,22 +978,34 @@ def export_publication_figures(db, results_df, output_dir, prefix='figure',
         dict mapping figure names to file paths
 
     Example:
+        # Grouped search
+        results = db.search_by_device_names({'g1': 'argon', 'g2': 'penumbra'})
         figures = export_publication_figures(db, results, './figures', prefix='study1')
+
+        # With custom brand standardization
+        results['standard_brand'] = ...  # Apply standardization
+        figures = export_publication_figures(db, results, './figures', group_column='standard_brand')
+
+    Author: Jacob Schwartz <jaschwa@umich.edu>
+    Copyright: 2026, GNU GPL v3
     """
     os.makedirs(output_dir, exist_ok=True)
     generated = {}
 
-    # Check required columns
-    has_brand = 'standard_brand' in results_df.columns
+    # Determine grouping column: prefer search_group, fall back to standard_brand
+    if 'search_group' in results_df.columns:
+        group_column = 'search_group'
+    elif 'standard_brand' in results_df.columns:
+        group_column = 'standard_brand'
+    else:
+        raise ValueError("results_df must have 'search_group' or 'standard_brand' column. "
+                        "Use search_by_device_names() with dict input or standardize_brand_names().")
+
     has_problem_category = 'problem_category' in results_df.columns
     has_patient_category = 'patient_problem_category' in results_df.columns
 
-    if not has_brand:
-        raise ValueError("results_df must have 'standard_brand' column. "
-                        "Use standardize_brand_names() first.")
-
     # Figure 1: Temporal Trends
-    summary = summarize_by_brand(results_df, include_temporal=True)
+    summary = summarize_by_brand(results_df, group_column=group_column, include_temporal=True)
     for fmt in formats:
         fname = f"{output_dir}/{prefix}_temporal_trends.{fmt}"
         plot_temporal_trends(summary, output_file=fname, **kwargs)
@@ -1220,7 +1015,7 @@ def export_publication_figures(db, results_df, output_dir, prefix='figure',
 
     # Figure 2: Device Problem Distribution (if available)
     if has_problem_category:
-        table = create_contingency_table(results_df, 'standard_brand',
+        table = create_contingency_table(results_df, group_column,
                                         'problem_category', normalize=True)
         for fmt in formats:
             fname = f"{output_dir}/{prefix}_device_problems.{fmt}"
@@ -1232,7 +1027,7 @@ def export_publication_figures(db, results_df, output_dir, prefix='figure',
 
     # Figure 3: Patient Outcome Distribution (if available)
     if has_patient_category:
-        table = create_contingency_table(results_df, 'standard_brand',
+        table = create_contingency_table(results_df, group_column,
                                         'patient_problem_category', normalize=True)
         for fmt in formats:
             fname = f"{output_dir}/{prefix}_patient_outcomes.{fmt}"
@@ -1243,7 +1038,7 @@ def export_publication_figures(db, results_df, output_dir, prefix='figure',
             generated['patient_outcomes'].append(fname)
 
     # Figure 4: Event Type Comparison
-    comparison = event_type_comparison(results_df, group_var='standard_brand')
+    comparison = event_type_comparison(results_df, group_var=group_column)
     for fmt in formats:
         fname = f"{output_dir}/{prefix}_event_type_comparison.{fmt}"
         comparison['counts'][['deaths', 'injuries', 'malfunctions']].plot(

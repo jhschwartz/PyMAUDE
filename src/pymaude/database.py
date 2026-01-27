@@ -237,7 +237,7 @@ class MaudeDatabase:
         return cursor.fetchone()[0]
 
 
-    def add_years(self, years, tables=None, download=False, strict=False, chunk_size=100000, data_dir='./maude_data', interactive=True, force_refresh=False):
+    def add_years(self, years, tables=None, download=False, strict=False, chunk_size=100000, data_dir='./maude_data', interactive=True, force_refresh=False, force_download=False):
         """
         Add MAUDE data for specified years to database.
 
@@ -261,6 +261,22 @@ class MaudeDatabase:
             data_dir: Directory containing data files
             interactive: If True, prompt user for validation issues (default: True)
             force_refresh: If True, reload all years even if unchanged (default: False)
+                          Controls database processing - re-processes files into database
+                          even if checksums match. Use when rebuilding from existing files.
+            force_download: If True, re-download from FDA even if files exist locally (default: False)
+                           Controls download caching - bypasses local zip cache to get fresh
+                           copies from FDA. Use when FDA has updated their files. Only has
+                           effect when download=True.
+
+        Note:
+            force_download and force_refresh are independent:
+            - force_download: Controls whether to re-download zip files from FDA
+            - force_refresh: Controls whether to re-process files into database
+
+            Common scenarios:
+            - Get FDA updates: download=True, force_download=True, force_refresh=False
+            - Rebuild database: download=False, force_download=False, force_refresh=True
+            - Fresh start: download=True, force_download=True, force_refresh=True
         """
         years_list = self._parse_year_range(years)
 
@@ -309,12 +325,12 @@ class MaudeDatabase:
                 # Download for the first year in the group (others use same file)
                 year_to_download = years_for_file[0]
 
-                if not self._download_file(year_to_download, table, data_dir):
+                if not self._download_file(year_to_download, table, data_dir, force_download=force_download):
                     # Try fallback for current year
                     if year_to_download == current_year:
                         if self.verbose:
                             print(f'  Current year file not found for {table}, trying previous year...')
-                        if not self._download_file(year_to_download - 1, table, data_dir):
+                        if not self._download_file(year_to_download - 1, table, data_dir, force_download=force_download):
                             if strict:
                                 raise FileNotFoundError(f'Could not download {table} for {year_to_download} or {year_to_download-1}')
                             if self.verbose:
@@ -876,7 +892,7 @@ class MaudeDatabase:
         return False
 
 
-    def _download_file(self, year, table, data_dir='./maude_data'):
+    def _download_file(self, year, table, data_dir='./maude_data', force_download=False):
         """
         Download and extract a MAUDE file from FDA.
 
@@ -884,6 +900,7 @@ class MaudeDatabase:
             year: Year to download
             table: Table name (e.g., 'master', 'device')
             data_dir: Directory to save files
+            force_download: If True, bypass local cache and force fresh download from FDA
 
         Returns:
             True if successful, False otherwise
@@ -897,15 +914,16 @@ class MaudeDatabase:
             return False
 
         # Check download cache to avoid redundant downloads
+        # Skip cache checks if force_download=True
         cache_key = (table, filename, data_dir)
-        if cache_key in self._download_cache:
+        if not force_download and cache_key in self._download_cache:
             if self.verbose:
                 print(f'  Already downloaded {filename} in this session')
             return True
 
         zip_path = f"{data_dir}/{filename}"
 
-        if os.path.exists(zip_path):
+        if not force_download and os.path.exists(zip_path):
             if self.verbose:
                 print(f'  Using cached {filename}')
             try:
@@ -973,7 +991,7 @@ class MaudeDatabase:
         return self._check_url_exists(url)
 
 
-    def update(self, *, add_new_years, download=True):
+    def update(self, *, add_new_years, download=True, force_download=False):
         """
         Update existing years in database with latest FDA data.
 
@@ -987,6 +1005,9 @@ class MaudeDatabase:
                           existing years.
             download: If True, download files from FDA. If False, use local files
                      (default: True)
+            force_download: If True, re-download from FDA even if files exist locally
+                           (default: False). Use when FDA has updated their files.
+                           Only has effect when download=True.
 
         Example:
             # Refresh existing data only
@@ -997,6 +1018,9 @@ class MaudeDatabase:
 
             # Update from local files without downloading
             db.update(add_new_years=False, download=False)
+
+            # Force fresh download from FDA (recommended for getting FDA updates)
+            db.update(add_new_years=False, force_download=True)
         """
         existing = self._get_years_in_db()
 
@@ -1037,7 +1061,7 @@ class MaudeDatabase:
 
         # Use force_refresh=False to let checksum tracking decide what needs updating
         # This ensures only changed files are reprocessed
-        self.add_years(years_to_process, tables=tables_to_update, download=download, force_refresh=False, interactive=False)
+        self.add_years(years_to_process, tables=tables_to_update, download=download, force_refresh=False, force_download=force_download, interactive=False)
 
 
     def _get_latest_available_year(self):
@@ -1087,55 +1111,120 @@ class MaudeDatabase:
         return pd.read_sql_query(sql, self.conn, params=params)
 
 
-    def query_device(self, device_name=None, product_code=None,
-                     start_date=None, end_date=None, deduplicate_events=True):
+    def query_device(self, brand_name=None, generic_name=None, manufacturer_name=None,
+                    device_name_concat=None, product_code=None, pma_pmn=None,
+                    start_date=None, end_date=None, deduplicate_events=True):
         """
-        Query device events with optional filters.
+        Query device events by exact field matching (case-insensitive).
 
-        By default, returns one row per unique EVENT (EVENT_KEY). When multiple reports
-        exist for the same event (e.g., manufacturer + hospital reports), only the first
-        report is included. When an event/report involves multiple devices, only the
-        first device record is included.
+        Multiple parameters combine with AND logic. At least one search parameter required.
 
         Args:
-            device_name: Filter by generic_name or brand_name (partial match)
-            product_code: Filter by exact product code
-            start_date: Only events on/after this date
-            end_date: Only events on/before this date
-            deduplicate_events: If True (default), return one row per EVENT_KEY.
-                               If False, return all reports (may include multiple
-                               reports for the same event). Set to False only if you
-                               specifically need report-level data.
+            brand_name: Exact brand name (e.g., "Venovo", "AngioJet Zelante")
+            generic_name: Exact generic name (e.g., "Venous Stent")
+            manufacturer_name: Exact manufacturer (e.g., "Medtronic")
+            device_name_concat: Exact match on concatenated name column
+            product_code: Exact product code (e.g., "NIQ", "DQY")
+            pma_pmn: Exact PMA or PMN number (e.g., "P180037", "K123456")
+                    Matches PMA_PMN_NUM field in master table
+            start_date: Filter to events on or after this date (YYYY-MM-DD)
+            end_date: Filter to events on or before this date (YYYY-MM-DD)
+            deduplicate_events: If True, deduplicate by EVENT_KEY (default: True)
 
         Returns:
-            DataFrame with matching records from master + device tables.
-            By default, one row per unique event (EVENT_KEY). Approximately 8% of
-            reports share EVENT_KEY with other reports (same event, different sources).
+            DataFrame with device event records
+
+        Raises:
+            ValueError: If no search parameters provided
+
+        Examples:
+            # Exact brand match
+            db.query_device(brand_name='Venovo')
+
+            # Exact generic name
+            db.query_device(generic_name='Venous Stent')
+
+            # Exact manufacturer
+            db.query_device(manufacturer_name='Medtronic')
+
+            # Product code (as before)
+            db.query_device(product_code='NIQ')
+
+            # PMA/PMN number
+            db.query_device(pma_pmn='P180037')
+
+            # Multiple parameters (AND logic)
+            db.query_device(brand_name='Venovo', manufacturer_name='Medtronic')
+
+            # With date filtering
+            db.query_device(brand_name='Venovo', start_date='2020-01-01')
 
         Note:
-            This method now deduplicates by EVENT_KEY by default (changed from
-            MDR_REPORT_KEY). This ensures accurate event counts for epidemiological
-            analysis. Use deduplicate_events=False to get report-level data for
-            reporting compliance analysis.
+            For partial matching or boolean logic, use search_by_device_names().
+
+        Author: Jacob Schwartz <jaschwa@umich.edu>
+        Copyright: 2026, GNU GPL v3
         """
+        # Validate at least one search parameter provided
+        search_params = [brand_name, generic_name, manufacturer_name,
+                        device_name_concat, product_code, pma_pmn]
+        if not any(param is not None for param in search_params):
+            raise ValueError(
+                "At least one search parameter required: brand_name, generic_name, "
+                "manufacturer_name, device_name_concat, product_code, or pma_pmn"
+            )
+
+        # Check which columns exist in the device table
+        cursor = self.conn.execute("PRAGMA table_info(device)")
+        device_columns = {row[1] for row in cursor.fetchall()}
+
         # Check if EVENT_KEY column exists in master table
         cursor = self.conn.execute("PRAGMA table_info(master)")
-        columns = {row[1] for row in cursor.fetchall()}
-        has_event_key = 'EVENT_KEY' in columns
+        master_columns = {row[1] for row in cursor.fetchall()}
+        has_event_key = 'EVENT_KEY' in master_columns
+
+        # Get master table columns for explicit selection (exclude ROWID)
+        master_cols = ', '.join([f'm."{col}"' for col in sorted(master_columns) if col != 'ROWID'])
+
+        # Get device table columns, excluding ROWID and MDR_REPORT_KEY (already in master)
+        device_cols = ', '.join([f'd."{col}"' for col in sorted(device_columns)
+                                if col not in ('ROWID', 'MDR_REPORT_KEY')])
 
         # If EVENT_KEY doesn't exist, fall back to non-deduplication mode
         if deduplicate_events and not has_event_key:
             deduplicate_events = False
 
-        # Build WHERE conditions for device filters
+        # Build WHERE conditions for device filters (exact matching)
         device_conditions = []
         params = {}
 
-        if device_name:
-            device_conditions.append("(UPPER(d.GENERIC_NAME) LIKE UPPER(:device) OR UPPER(d.BRAND_NAME) LIKE UPPER(:device))")
-            params['device'] = f'%{device_name}%'
+        if brand_name is not None:
+            device_conditions.append("UPPER(d.BRAND_NAME) = UPPER(:brand)")
+            params['brand'] = brand_name
 
-        if product_code:
+        if generic_name is not None:
+            device_conditions.append("UPPER(d.GENERIC_NAME) = UPPER(:generic)")
+            params['generic'] = generic_name
+
+        if manufacturer_name is not None:
+            # Use MANUFACTURER_D_NAME column (actual column in device table)
+            if 'MANUFACTURER_D_NAME' in device_columns:
+                device_conditions.append("UPPER(d.MANUFACTURER_D_NAME) = UPPER(:manufacturer)")
+                params['manufacturer'] = manufacturer_name
+            else:
+                raise ValueError("MANUFACTURER_D_NAME column not found in device table")
+
+        if device_name_concat is not None:
+            if 'DEVICE_NAME_CONCAT' in device_columns:
+                device_conditions.append("UPPER(d.DEVICE_NAME_CONCAT) = UPPER(:concat)")
+                params['concat'] = device_name_concat
+            else:
+                raise ValueError(
+                    "DEVICE_NAME_CONCAT column not found. "
+                    "Run create_search_index() first to add this column."
+                )
+
+        if product_code is not None:
             device_conditions.append("d.DEVICE_REPORT_PRODUCT_CODE = :code")
             params['code'] = product_code
 
@@ -1143,6 +1232,14 @@ class MaudeDatabase:
 
         # Build WHERE conditions for date filters (applied to master table)
         date_conditions = []
+
+        if pma_pmn is not None:
+            # PMA_PMN_NUM is in the master table, not device table
+            if 'PMA_PMN_NUM' in master_columns:
+                date_conditions.append("UPPER(m.PMA_PMN_NUM) = UPPER(:pma)")
+                params['pma'] = pma_pmn
+            else:
+                raise ValueError("PMA_PMN_NUM column not found in master table")
 
         if start_date:
             date_conditions.append("m.DATE_RECEIVED >= :start")
@@ -1158,11 +1255,10 @@ class MaudeDatabase:
             # Fast CTE-based deduplication by EVENT_KEY
             # Performance: O(N+M) complexity vs O(N*M) for correlated subquery
             # CRITICAL: Must filter by device FIRST, then deduplicate by EVENT_KEY
-            # FIX: Store device_rowid in Step 1 to preserve filter through deduplication
+            # FIX: Explicitly select columns to avoid duplicates
             sql = f"""
                 WITH matching_reports AS (
                     -- Step 1: Find all reports with matching devices and date filters
-                    -- FIX: Store device_rowid to preserve which device matched the filter
                     SELECT DISTINCT
                         m.MDR_REPORT_KEY,
                         m.EVENT_KEY,
@@ -1174,8 +1270,7 @@ class MaudeDatabase:
                 ),
                 first_report_per_event AS (
                     -- Step 2: For each EVENT_KEY, select first report and device
-                    -- FIX: Keep device_rowid from Step 1 to use in final join
-                    -- FIX: Use MDR_REPORT_KEY as fallback when EVENT_KEY is NULL
+                    -- Use MDR_REPORT_KEY as fallback when EVENT_KEY is NULL
                     SELECT
                         EVENT_KEY,
                         MDR_REPORT_KEY,
@@ -1184,23 +1279,22 @@ class MaudeDatabase:
                     FROM matching_reports
                     GROUP BY COALESCE(EVENT_KEY, MDR_REPORT_KEY)
                 )
-                -- Step 3: Final join using preserved device_rowid
-                -- FIX: Removed intermediate CTE that joined to ALL devices (was the bug!)
-                SELECT m.*, d.*
+                -- Step 3: Final join with explicit column selection (no duplicates)
+                SELECT {master_cols}, {device_cols}
                 FROM first_report_per_event frpe
                 JOIN master m ON m.ROWID = frpe.first_master_rowid
                 JOIN device d ON d.ROWID = frpe.first_device_rowid
             """
         else:
             # No deduplication - return all matching reports and devices
-            # Still use CTE for consistent performance
+            # Explicit column selection to avoid duplicates
             sql = f"""
                 WITH matching_devices AS (
                     SELECT d.MDR_REPORT_KEY, d.ROWID as device_rowid
                     FROM device d
                     WHERE {device_where}
                 )
-                SELECT m.*, d.*
+                SELECT {master_cols}, {device_cols}
                 FROM master m
                 JOIN matching_devices md ON md.MDR_REPORT_KEY = m.MDR_REPORT_KEY
                 JOIN device d ON d.ROWID = md.device_rowid
@@ -1210,61 +1304,72 @@ class MaudeDatabase:
         return pd.read_sql_query(sql, self.conn, params=params)
 
 
-    def get_trends_by_year(self, product_code=None, device_name=None):
+    def get_trends_by_year(self, results_df):
         """
-        Get yearly event counts and breakdown by patient outcomes.
-
-        Uses patient_outcome table for accurate death/injury counts.
+        Get year-by-year trends for device events.
 
         Args:
-            product_code: Optional filter by product code
-            device_name: Optional filter by device name
+            results_df: DataFrame from search_by_device_names() or query_device()
+                       Must contain DATE_RECEIVED column
 
         Returns:
-            DataFrame with columns: year, event_count, deaths, injuries, no_patient_record
-            - deaths: Reports with OUTCOME_CODE = 'D'
-            - injuries: Reports with serious outcomes (L, H, S, C, R, O)
-            - no_patient_record: Reports with no patient table record
+            DataFrame with yearly trends including:
+            - year: Year
+            - event_count: Number of events
+            - (If search_group column present, includes group breakdown)
+
+        Examples:
+            # From search results
+            results = db.search_by_device_names('catheter')
+            trends = db.get_trends_by_year(results)
+
+            # From exact query
+            results = db.query_device(product_code='NIQ')
+            trends = db.get_trends_by_year(results)
+
+            # For grouped search, trends include search_group
+            results = db.search_by_device_names({'g1': 'argon', 'g2': 'penumbra'})
+            trends = db.get_trends_by_year(results)
+            # Returns trends with search_group column
+
+            # For single group trends, filter first
+            g1_only = results[results['search_group'] == 'g1']
+            trends_g1 = db.get_trends_by_year(g1_only)
+
+        Author: Jacob Schwartz <jaschwa@umich.edu>
+        Copyright: 2026, GNU GPL v3
         """
-        condition = "1=1"
-        params = {}
+        # Validate input
+        if not isinstance(results_df, pd.DataFrame):
+            raise TypeError("results_df must be a pandas DataFrame")
 
-        if product_code:
-            condition = "d.DEVICE_REPORT_PRODUCT_CODE = :code"
-            params['code'] = product_code
-        elif device_name:
-            condition = "(UPPER(d.GENERIC_NAME) LIKE UPPER(:name) OR UPPER(d.BRAND_NAME) LIKE UPPER(:name))"
-            params['name'] = f'%{device_name}%'
+        if len(results_df) == 0:
+            # Return empty DataFrame with expected structure
+            if 'search_group' in results_df.columns:
+                return pd.DataFrame(columns=['year', 'search_group', 'event_count'])
+            else:
+                return pd.DataFrame(columns=['year', 'event_count'])
 
-        # Count patient outcomes from patient table (SEQUENCE_NUMBER_OUTCOME contains semicolon-separated codes)
-        # Outcome codes: D=Death, L=Life threatening, H=Hospitalization, S=Disability, C=Congenital Anomaly, R=Required Intervention, O=Other
-        # Multiple outcomes can exist per patient, separated by semicolons with spaces (e.g., "D; L")
-        # Match codes at start, middle, or end of semicolon-separated list
-        # Events without patient records may still be deaths/injuries (incomplete data entry)
-        sql = f"""
-            SELECT
-                strftime('%Y', m.DATE_RECEIVED) as year,
-                COUNT(DISTINCT m.MDR_REPORT_KEY) as event_count,
-                COUNT(DISTINCT CASE WHEN p.SEQUENCE_NUMBER_OUTCOME LIKE '%D%' THEN m.MDR_REPORT_KEY END) as deaths,
-                COUNT(DISTINCT CASE WHEN (p.SEQUENCE_NUMBER_OUTCOME LIKE '%L%'
-                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%H%'
-                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%S%'
-                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%C%'
-                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%R%'
-                                       OR p.SEQUENCE_NUMBER_OUTCOME = 'O'
-                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE 'O; %'
-                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%; O'
-                                       OR p.SEQUENCE_NUMBER_OUTCOME LIKE '%; O; %') THEN m.MDR_REPORT_KEY END) as injuries,
-                COUNT(DISTINCT CASE WHEN p.MDR_REPORT_KEY IS NULL THEN m.MDR_REPORT_KEY END) as no_patient_record
-            FROM master m
-            JOIN device d ON m.MDR_REPORT_KEY = d.MDR_REPORT_KEY
-            LEFT JOIN patient p ON m.MDR_REPORT_KEY = p.MDR_REPORT_KEY
-            WHERE {condition}
-            GROUP BY year
-            ORDER BY year
-        """
+        if 'DATE_RECEIVED' not in results_df.columns:
+            raise ValueError("results_df must contain DATE_RECEIVED column")
 
-        return pd.read_sql_query(sql, self.conn, params=params)
+        # Extract year from DATE_RECEIVED
+        results_df = results_df.copy()
+        results_df['year'] = pd.to_datetime(results_df['DATE_RECEIVED']).dt.year
+
+        # Determine grouping columns
+        group_cols = ['year']
+        if 'search_group' in results_df.columns:
+            group_cols.insert(0, 'search_group')  # Put search_group first
+
+        # Group and count
+        trends = results_df.groupby(group_cols, as_index=False).size()
+        trends.rename(columns={'size': 'event_count'}, inplace=True)
+
+        # Sort by year (and search_group if present)
+        trends = trends.sort_values(group_cols)
+
+        return trends
 
 
     def get_narratives(self, mdr_report_keys):
@@ -1327,19 +1432,6 @@ class MaudeDatabase:
 
     # ==================== New Analysis Helper Methods ====================
 
-    def query_multiple_devices(self, device_names, start_date=None, end_date=None,
-                              deduplicate=True, brand_column='query_brand'):
-        """Query multiple devices. See analysis_helpers module."""
-        return analysis_helpers.query_multiple_devices(
-            self, device_names, start_date, end_date, deduplicate, brand_column
-        )
-
-    def query_device_catalog(self, device_catalog, start_date=None, end_date=None):
-        """Query devices from a catalog. See analysis_helpers module."""
-        return analysis_helpers.query_device_catalog(
-            self, device_catalog, start_date, end_date
-        )
-
     def enrich_with_problems(self, results_df):
         """Join device problem codes. See analysis_helpers module."""
         return analysis_helpers.enrich_with_problems(self, results_df)
@@ -1352,13 +1444,9 @@ class MaudeDatabase:
         """Join event narratives. See analysis_helpers module."""
         return analysis_helpers.enrich_with_narratives(self, results_df)
 
-    def summarize_by_brand(self, results_df, group_column='standard_brand', include_temporal=True):
-        """Generate summary statistics by brand. See analysis_helpers module."""
+    def summarize_by_brand(self, results_df, group_column='search_group', include_temporal=True):
+        """Generate summary statistics by brand or search group. See analysis_helpers module."""
         return analysis_helpers.summarize_by_brand(results_df, group_column, include_temporal)
-
-    def find_brand_variations(self, search_terms, max_results=50):
-        """Find brand name variations. See analysis_helpers module."""
-        return analysis_helpers.find_brand_variations(self, search_terms, max_results)
 
     def standardize_brand_names(self, results_df, mapping_dict,
                                source_col='BRAND_NAME', target_col='standard_brand'):
@@ -1385,8 +1473,8 @@ class MaudeDatabase:
         """Perform chi-square test. See analysis_helpers module."""
         return analysis_helpers.chi_square_test(results_df, row_var, col_var, exclude_cols)
 
-    def event_type_comparison(self, results_df, group_var='standard_brand'):
-        """Compare event type distributions. See analysis_helpers module."""
+    def event_type_comparison(self, results_df, group_var='search_group'):
+        """Compare event type distributions across groups. See analysis_helpers module."""
         return analysis_helpers.event_type_comparison(results_df, group_var)
 
     def plot_temporal_trends(self, summary_dict, output_file=None, figsize=(12, 6), **kwargs):
@@ -1434,6 +1522,441 @@ class MaudeDatabase:
         """Count unique outcomes per report. See analysis_helpers module."""
         return analysis_helpers.count_unique_outcomes_per_report(patient_df, outcome_col)
 
+
+    # ==================== Device Search Methods ====================
+
+    def create_search_index(self):
+        """
+        Create concatenated search column and index for fast boolean device searches.
+
+        This is a one-time operation that adds a DEVICE_NAME_CONCAT column to the
+        device table containing BRAND_NAME || GENERIC_NAME || MANUFACTURER_D_NAME
+        (pipe-separated, uppercased) and creates an index on it.
+
+        Call this before using search_by_device_names() for optimal performance. If not
+        called, search_by_device_names() will work but will be slower.
+
+        Example:
+            db = MaudeDatabase('maude.db')
+            db.create_search_index()  # One-time setup
+
+        Returns:
+            dict with:
+            - created: True if column was created, False if already existed
+            - rows_updated: Number of rows updated (if created)
+            - time_seconds: Time taken
+
+        Note:
+            This method is idempotent - safe to call multiple times.
+            It will skip creation if the column already exists.
+        """
+        import time
+        start_time = time.time()
+
+        # Check if column exists
+        cursor = self.conn.execute("PRAGMA table_info(device)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        # Check if we need to update existing rows
+        column_exists = 'DEVICE_NAME_CONCAT' in columns
+
+        if column_exists:
+            # Check if there are any NULL values that need updating
+            cursor = self.conn.execute("""
+                SELECT COUNT(*) FROM device
+                WHERE DEVICE_NAME_CONCAT IS NULL OR DEVICE_NAME_CONCAT = ''
+            """)
+            null_count = cursor.fetchone()[0]
+
+            if null_count == 0:
+                if self.verbose:
+                    print("Search index already exists and is up to date")
+                return {
+                    'created': False,
+                    'rows_updated': 0,
+                    'time_seconds': time.time() - start_time
+                }
+
+            if self.verbose:
+                print(f"Updating search index for {null_count:,} new device records...")
+        else:
+            if self.verbose:
+                print("Creating search index...")
+                print("  - Adding DEVICE_NAME_CONCAT column")
+
+            # Add column
+            self.conn.execute("""
+                ALTER TABLE device
+                ADD COLUMN DEVICE_NAME_CONCAT TEXT
+            """)
+
+        if self.verbose:
+            print("  - Populating with concatenated values")
+
+        # Populate with concatenated values (pipe-separated, uppercased)
+        # Only update rows where DEVICE_NAME_CONCAT is NULL or empty
+        self.conn.execute("""
+            UPDATE device
+            SET DEVICE_NAME_CONCAT =
+                UPPER(
+                    COALESCE(BRAND_NAME, '') || ' | ' ||
+                    COALESCE(GENERIC_NAME, '') || ' | ' ||
+                    COALESCE(MANUFACTURER_D_NAME, '')
+                )
+            WHERE DEVICE_NAME_CONCAT IS NULL OR DEVICE_NAME_CONCAT = ''
+        """)
+
+        # Get row count
+        cursor = self.conn.execute("SELECT COUNT(*) FROM device WHERE DEVICE_NAME_CONCAT IS NOT NULL")
+        rows_updated = cursor.fetchone()[0]
+
+        if self.verbose:
+            print(f"  - Creating index on {rows_updated:,} rows")
+
+        # Create index for fast LIKE searches
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_device_name_concat
+            ON device(DEVICE_NAME_CONCAT)
+        """)
+
+        self.conn.commit()
+
+        elapsed = time.time() - start_time
+
+        if self.verbose:
+            if column_exists:
+                print(f"Search index updated in {elapsed:.1f}s")
+            else:
+                print(f"Search index created in {elapsed:.1f}s")
+
+        return {
+            'created': not column_exists,
+            'rows_updated': rows_updated,
+            'time_seconds': elapsed
+        }
+
+    def search_by_device_names(self, criteria, start_date=None, end_date=None,
+                              deduplicate_events=True, use_concat_column=True,
+                              group_column='search_group'):
+        """
+        Search for device events using boolean name matching.
+
+        This method provides flexible device searching with automatic boolean logic:
+        - Single list: OR all terms (any term matches)
+        - List of lists: OR groups, AND within groups
+        - Dict: Grouped search with group membership tracking
+
+        For best performance, run create_search_index() once before using this method.
+
+        Args:
+            criteria: Search criteria in one of these formats:
+                     - String: Single term search, e.g., 'catheter'
+                     - List of strings: OR search, e.g., ['argon', 'angiojet', 'penumbra']
+                       Returns devices matching ANY of these terms.
+                     - List of lists: OR of AND groups, e.g., [['argon', 'cleaner'], ['angiojet']]
+                       Returns devices matching (argon AND cleaner) OR (angiojet).
+                     - Mixed list: You can mix strings and lists, e.g., [['argon', 'cleaner'], 'angiojet']
+                       Strings are treated as single-term OR groups.
+                     - Dict: Grouped search {group_name: criteria, ...}
+                       Returns single DataFrame with group_column tracking membership.
+            start_date: Optional start date filter (YYYY-MM-DD)
+            end_date: Optional end date filter (YYYY-MM-DD)
+            deduplicate_events: If True (default), return one row per EVENT_KEY.
+                               If False, return all reports (may include duplicates).
+            use_concat_column: If True (default), use DEVICE_NAME_CONCAT for searching
+                              (faster if create_search_index() was called).
+                              If False, search individual columns (slower but works
+                              even without search index).
+            group_column: Column name for group membership when dict input (default: 'search_group').
+                         Ignored for non-dict input.
+
+        Returns:
+            DataFrame with matching records from master + device tables.
+            - Dict input: includes {group_column} column tracking group membership
+            - Non-dict input: no group column
+
+        Examples:
+            # Single term
+            results = db.search_by_device_names('catheter')
+
+            # OR logic - matches any term
+            results = db.search_by_device_names(['argon', 'angiojet', 'penumbra'])
+
+            # AND logic
+            results = db.search_by_device_names([['argon', 'cleaner']])
+
+            # Complex AND/OR - (argon AND cleaner) OR (angiojet)
+            results = db.search_by_device_names([['argon', 'cleaner'], ['angiojet']])
+
+            # Grouped search
+            results = db.search_by_device_names({
+                'mechanical': [['argon', 'cleaner'], 'angiojet'],
+                'aspiration': 'penumbra'
+            })
+            # Returns DataFrame with 'search_group' column
+
+            # With date filters
+            results = db.search_by_device_names(
+                [['argon', 'cleaner'], ['angiojet']],
+                start_date='2020-01-01',
+                end_date='2023-12-31'
+            )
+
+        Notes:
+            - All searches are case-insensitive
+            - Terms are matched as substrings (LIKE %term%)
+            - Searches across BRAND_NAME, GENERIC_NAME, and MANUFACTURER_D_NAME
+            - Use create_search_index() first for 10-30x better performance
+            - Grouped search: events only appear in first matching group (dict order)
+            - Warnings issued when events match multiple groups
+
+        Author: Jacob Schwartz <jaschwa@umich.edu>
+        Copyright: 2026, GNU GPL v3
+        """
+        # Dict input → call grouped search
+        if isinstance(criteria, dict):
+            return self._search_by_device_names_grouped(
+                criteria, start_date, end_date,
+                deduplicate_events, use_concat_column, group_column
+            )
+
+        # Normalize criteria to list of lists format
+        if isinstance(criteria, str):
+            # Single string -> [['term']]
+            normalized = [[criteria]]
+        elif isinstance(criteria, list):
+            if len(criteria) == 0:
+                raise ValueError("criteria cannot be empty")
+            # Handle mixed lists by normalizing each element individually
+            normalized = []
+            for item in criteria:
+                if isinstance(item, str):
+                    # Single string -> wrap in list for OR group
+                    normalized.append([item])
+                elif isinstance(item, list):
+                    # Already a list (AND group) -> use as-is
+                    normalized.append(item)
+                else:
+                    raise ValueError(f"Each item must be a string or list, got {type(item).__name__}")
+        else:
+            raise ValueError("criteria must be a string, list of strings, or list of lists")
+
+        # Validate normalized criteria
+        for group in normalized:
+            if not isinstance(group, list):
+                print(group)
+                raise ValueError("Each group in criteria must be a list")
+            if len(group) == 0:
+                raise ValueError("Empty group in criteria")
+            for term in group:
+                if not isinstance(term, str):
+                    raise ValueError("All search terms must be strings")
+
+        # Build search WHERE clause
+        if use_concat_column:
+            # Check if concat column exists
+            cursor = self.conn.execute("PRAGMA table_info(device)")
+            columns = {row[1] for row in cursor.fetchall()}
+
+            if 'DEVICE_NAME_CONCAT' not in columns:
+                # Fall back to individual column search
+                if self.verbose:
+                    print("Warning: DEVICE_NAME_CONCAT column not found. ")
+                    print("         Run create_search_index() for better performance.")
+                use_concat_column = False
+
+        search_conditions = []
+        params = {}
+        param_counter = 0
+
+        for group_idx, group in enumerate(normalized):
+            # Each group is AND'd together
+            group_conditions = []
+            for term in group:
+                # Escape special SQL LIKE characters
+                term_escaped = term.replace('%', '\\%').replace('_', '\\_')
+                param_name = f'term_{param_counter}'
+                param_counter += 1
+
+                if use_concat_column:
+                    # Search in concatenated column
+                    group_conditions.append(f"UPPER(d.DEVICE_NAME_CONCAT) LIKE UPPER(:{param_name}) ESCAPE '\\'")
+                else:
+                    # Search in individual columns
+                    group_conditions.append(
+                        f"(UPPER(d.BRAND_NAME) LIKE UPPER(:{param_name}) ESCAPE '\\' OR "
+                        f"UPPER(d.GENERIC_NAME) LIKE UPPER(:{param_name}) ESCAPE '\\' OR "
+                        f"UPPER(d.MANUFACTURER_D_NAME) LIKE UPPER(:{param_name}) ESCAPE '\\')"
+                    )
+
+                params[param_name] = f'%{term_escaped}%'
+
+            # Combine terms in group with AND
+            if len(group_conditions) > 1:
+                search_conditions.append(f"({' AND '.join(group_conditions)})")
+            else:
+                search_conditions.append(group_conditions[0])
+
+        # Combine groups with OR
+        device_where = " OR ".join(search_conditions)
+
+        # Build date filter conditions
+        date_conditions = []
+        if start_date:
+            date_conditions.append("m.DATE_RECEIVED >= :start")
+            params['start'] = start_date
+
+        if end_date:
+            date_conditions.append("m.DATE_RECEIVED < date(:end, '+1 day')")
+            params['end'] = end_date
+
+        date_where = " AND ".join(date_conditions) if date_conditions else "1=1"
+
+        # Use same deduplication logic as query_device()
+        # Check if EVENT_KEY column exists
+        cursor = self.conn.execute("PRAGMA table_info(master)")
+        columns = {row[1] for row in cursor.fetchall()}
+        has_event_key = 'EVENT_KEY' in columns
+
+        if deduplicate_events and not has_event_key:
+            deduplicate_events = False
+
+        if deduplicate_events:
+            # CTE-based deduplication by EVENT_KEY (same as query_device)
+            sql = f"""
+                WITH matching_reports AS (
+                    SELECT DISTINCT
+                        m.MDR_REPORT_KEY,
+                        m.EVENT_KEY,
+                        m.ROWID as master_rowid,
+                        d.ROWID as device_rowid
+                    FROM master m
+                    JOIN device d ON d.MDR_REPORT_KEY = m.MDR_REPORT_KEY
+                    WHERE ({device_where}) AND {date_where}
+                ),
+                first_report_per_event AS (
+                    SELECT
+                        EVENT_KEY,
+                        MDR_REPORT_KEY,
+                        MIN(master_rowid) as first_master_rowid,
+                        MIN(device_rowid) as first_device_rowid
+                    FROM matching_reports
+                    GROUP BY COALESCE(EVENT_KEY, MDR_REPORT_KEY)
+                )
+                SELECT m.MDR_REPORT_KEY, m.EVENT_KEY, m.DATE_RECEIVED, m.EVENT_TYPE,
+                       d.BRAND_NAME, d.GENERIC_NAME, d.MANUFACTURER_D_NAME,
+                       d.DEVICE_REPORT_PRODUCT_CODE, d.ROWID as device_rowid
+                FROM first_report_per_event frpe
+                JOIN master m ON m.ROWID = frpe.first_master_rowid
+                JOIN device d ON d.ROWID = frpe.first_device_rowid
+            """
+        else:
+            # No deduplication - return all matching reports
+            sql = f"""
+                WITH matching_devices AS (
+                    SELECT d.MDR_REPORT_KEY, d.ROWID as device_rowid
+                    FROM device d
+                    WHERE ({device_where})
+                )
+                SELECT m.MDR_REPORT_KEY, m.EVENT_KEY, m.DATE_RECEIVED, m.EVENT_TYPE,
+                       d.BRAND_NAME, d.GENERIC_NAME, d.MANUFACTURER_D_NAME,
+                       d.DEVICE_REPORT_PRODUCT_CODE, md.device_rowid
+                FROM master m
+                JOIN matching_devices md ON md.MDR_REPORT_KEY = m.MDR_REPORT_KEY
+                JOIN device d ON d.ROWID = md.device_rowid
+                WHERE {date_where}
+            """
+
+        return pd.read_sql_query(sql, self.conn, params=params)
+
+    def _search_by_device_names_grouped(self, criteria_dict, start_date=None, end_date=None,
+                                       deduplicate_events=True, use_concat_column=True,
+                                       group_column='search_group'):
+        """
+        Internal method for grouped device name search.
+
+        Args:
+            criteria_dict: Dict mapping group names to search criteria
+            start_date: Optional start date filter
+            end_date: Optional end date filter
+            deduplicate_events: Whether to deduplicate by EVENT_KEY
+            use_concat_column: Whether to use DEVICE_NAME_CONCAT column
+            group_column: Column name for group membership
+
+        Returns:
+            Single DataFrame with group_column tracking membership
+
+        Note:
+            - Events only appear in first matching group (dict order)
+            - Warnings issued when events match multiple groups
+            - Empty groups are omitted from returned DataFrame
+        """
+        import warnings
+
+        # Validate dict input
+        if not criteria_dict:
+            raise ValueError("criteria dict cannot be empty")
+
+        for key in criteria_dict.keys():
+            if not isinstance(key, str):
+                raise ValueError(f"All group names must be strings, got {type(key).__name__}")
+
+        # Track seen MDR_REPORT_KEYs to handle overlaps
+        seen_keys = set()
+        group_dataframes = []
+
+        # Process each group in dict order
+        for group_name, group_criteria in criteria_dict.items():
+            # Search for this group
+            group_results = self.search_by_device_names(
+                group_criteria,
+                start_date=start_date,
+                end_date=end_date,
+                deduplicate_events=deduplicate_events,
+                use_concat_column=use_concat_column
+            )
+
+            # Skip if no results
+            if len(group_results) == 0:
+                continue
+
+            # Check for overlaps with previously seen events
+            group_keys = set(group_results['MDR_REPORT_KEY'])
+            overlap_keys = group_keys & seen_keys
+
+            if overlap_keys:
+                # Issue warning about overlaps
+                warnings.warn(
+                    f"{len(overlap_keys)} events previously matched to other groups "
+                    f"were skipped from '{group_name}'",
+                    UserWarning
+                )
+
+                # Filter out overlapping events
+                group_results = group_results[~group_results['MDR_REPORT_KEY'].isin(overlap_keys)]
+
+            # Skip if all events were filtered out
+            if len(group_results) == 0:
+                continue
+
+            # Add group column
+            group_results[group_column] = group_name
+
+            # Track keys for this group
+            seen_keys.update(set(group_results['MDR_REPORT_KEY']))
+
+            # Add to results list
+            group_dataframes.append(group_results)
+
+        # Concatenate all results
+        if len(group_dataframes) == 0:
+            # No results at all - return empty DataFrame with expected columns
+            empty_df = pd.DataFrame()
+            empty_df[group_column] = []
+            return empty_df
+
+        combined_results = pd.concat(group_dataframes, ignore_index=True)
+        return combined_results
 
     # ==================== Database Info Methods ====================
 

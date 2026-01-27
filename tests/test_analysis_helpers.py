@@ -356,9 +356,9 @@ class TestAnalysisHelpers:
         assert result.iloc[1]['device_model'] == 'Penumbra Lightning Flash (unspecified)'
 
     def test_summarize_by_brand(self):
-        """Test brand summarization."""
+        """Test brand summarization with search_group column (new default)."""
         df = pd.DataFrame({
-            'standard_brand': ['Brand A', 'Brand A', 'Brand B', 'Brand B', 'Brand C'],
+            'search_group': ['Brand A', 'Brand A', 'Brand B', 'Brand B', 'Brand C'],
             'DATE_RECEIVED': ['2020-01-01', '2020-06-01', '2020-03-01', '2020-09-01', '2021-01-01'],
             'EVENT_TYPE': ['Injury', 'Death', 'Malfunction', 'Injury', 'Death']
         })
@@ -376,7 +376,7 @@ class TestAnalysisHelpers:
             'BRAND_NAME': ['Brand A', 'Brand B']
         })
 
-        with pytest.raises(ValueError, match="must contain 'standard_brand' column"):
+        with pytest.raises(ValueError, match="must contain 'search_group' column"):
             analysis_helpers.summarize_by_brand(df)
 
     def test_create_contingency_table(self):
@@ -428,10 +428,10 @@ class TestAnalysisHelpers:
         assert result['significant'] == True  # Should be significant
 
     def test_event_type_comparison(self):
-        """Test event type comparison."""
+        """Test event type comparison with search_group column (new default)."""
         df = pd.DataFrame({
             'MDR_REPORT_KEY': [1, 2, 3, 4, 5, 6],
-            'standard_brand': ['Brand A', 'Brand A', 'Brand A', 'Brand B', 'Brand B', 'Brand B'],
+            'search_group': ['Brand A', 'Brand A', 'Brand A', 'Brand B', 'Brand B', 'Brand B'],
             'EVENT_TYPE': ['Death', 'Injury', 'Malfunction', 'Death', 'Death', 'Injury']
         })
 
@@ -462,6 +462,7 @@ class TestAnalysisHelpersIntegration:
             'BRAND_NAME': ['Test Device A', 'Test Device B', 'Test Device A', 'Test Device C', 'Test Device B'],
             'GENERIC_NAME': ['Device Type 1', 'Device Type 2', 'Device Type 1', 'Device Type 3', 'Device Type 2'],
             'MANUFACTURER_D_NAME': ['Acme Corp', 'Beta Inc', 'Acme Corp', 'Gamma LLC', 'Beta Inc'],
+            'DEVICE_REPORT_PRODUCT_CODE': ['ABC', 'DEF', 'ABC', 'GHI', 'DEF'],
             'DATE_RECEIVED': ['2020-01-15', '2020-06-20', '2021-03-10', '2021-08-05', '2021-12-25'],
             'EVENT_TYPE': ['Death', 'Injury', 'Malfunction', 'Death', 'Injury']
         })
@@ -469,9 +470,10 @@ class TestAnalysisHelpersIntegration:
         # Insert into database
         device_data.to_sql('device', db.conn, if_exists='replace', index=False)
 
-        # Create master table entry
+        # Create master table entry with EVENT_KEY column
         master_data = pd.DataFrame({
             'MDR_REPORT_KEY': [1, 2, 3, 4, 5],
+            'EVENT_KEY': ['EVT1', 'EVT2', 'EVT3', 'EVT4', 'EVT5'],
             'DATE_RECEIVED': ['2020-01-15', '2020-06-20', '2021-03-10', '2021-08-05', '2021-12-25'],
             'EVENT_TYPE': ['Death', 'Injury', 'Malfunction', 'Death', 'Injury']
         })
@@ -479,29 +481,6 @@ class TestAnalysisHelpersIntegration:
 
         yield db
         db.close()
-
-    def test_query_multiple_devices_workflow(self, db_with_data):
-        """Test full multi-device query workflow."""
-        brands = ['Test Device A', 'Test Device B']
-        results = analysis_helpers.query_multiple_devices(
-            db_with_data, brands
-        )
-
-        assert len(results) > 0
-        assert 'query_brand' in results.columns
-        assert 'all_matching_brands' in results.columns
-        # Should find devices with either brand
-        assert results['query_brand'].isin(brands).all()
-
-    def test_query_multiple_devices_deduplication(self, db_with_data):
-        """Test that query_multiple_devices deduplicates correctly."""
-        brands = ['Test Device']  # Partial match will find multiple
-        results = analysis_helpers.query_multiple_devices(
-            db_with_data, brands, deduplicate=True
-        )
-
-        # Should have no duplicate MDR_REPORT_KEYs
-        assert len(results) == results['MDR_REPORT_KEY'].nunique()
 
     def test_enrich_missing_table_raises_error(self, db_with_data):
         """Test strict error when table not loaded."""
@@ -515,23 +494,6 @@ class TestAnalysisHelpersIntegration:
 
         with pytest.raises(ValueError, match="Text table not loaded"):
             analysis_helpers.enrich_with_narratives(db_with_data, df)
-
-    def test_find_brand_variations(self, db_with_data):
-        """Test finding brand variations."""
-        variations = analysis_helpers.find_brand_variations(db_with_data, 'Test Device')
-
-        assert len(variations) > 0
-        assert 'BRAND_NAME' in variations.columns
-        assert 'count' in variations.columns
-        assert 'sample_mdr_keys' in variations.columns
-
-    def test_find_brand_variations_multiple_terms(self, db_with_data):
-        """Test finding variations with multiple search terms."""
-        variations = analysis_helpers.find_brand_variations(
-            db_with_data, ['Device A', 'Device B']
-        )
-
-        assert len(variations) > 0
 
     def test_get_narratives_for_wrapper(self, db_with_data):
         """Test get_narratives_for with database instance."""
@@ -549,8 +511,9 @@ class TestAnalysisHelpersIntegration:
         assert 'FOI_TEXT' in narratives.columns
 
     def test_backwards_compatibility_via_db_instance(self, db_with_data):
-        """Test that existing methods still work through database instance."""
-        results = db_with_data.query_device(device_name='Test Device A')
+        """Test that query methods work through database instance."""
+        # Use exact-match query with new API
+        results = db_with_data.query_device(brand_name='Test Device A')
 
         # Test old helper methods
         trends = db_with_data.trends_for(results)
@@ -566,9 +529,9 @@ class TestAnalysisHelpersIntegration:
         assert 'first_date' in date_summary
 
     def test_new_methods_via_db_instance(self, db_with_data):
-        """Test that new methods work through database instance."""
-        # Test query_multiple_devices
-        results = db_with_data.query_multiple_devices(['Test Device A', 'Test Device B'])
+        """Test that helper methods work through database instance."""
+        # Use search_by_device_names instead of old query_device with device_name
+        results = db_with_data.search_by_device_names('Test Device A')
         assert len(results) > 0
 
         # Test standardize_brand_names
@@ -576,158 +539,14 @@ class TestAnalysisHelpersIntegration:
         standardized = db_with_data.standardize_brand_names(results, mapping)
         assert 'standard_brand' in standardized.columns
 
-        # Test summarize_by_brand
-        summary = db_with_data.summarize_by_brand(standardized)
+        # Test summarize_by_brand with custom group_column
+        summary = db_with_data.summarize_by_brand(standardized, group_column='standard_brand')
         assert 'counts' in summary
-
-        # Test find_brand_variations
-        variations = db_with_data.find_brand_variations('Test Device')
-        assert len(variations) > 0
-
-    def test_query_device_catalog_basic(self, db_with_data):
-        """Test basic query_device_catalog functionality."""
-        catalog = [
-            {
-                'device_id': 'DEVICE_A',
-                'search_terms': ['Test Device A'],
-                'pma_pmn_numbers': []
-            },
-            {
-                'device_id': 'DEVICE_B',
-                'search_terms': ['Test Device B'],
-                'pma_pmn_numbers': []
-            }
-        ]
-
-        results = analysis_helpers.query_device_catalog(db_with_data, catalog)
-
-        assert len(results) > 0
-        assert 'device_id' in results.columns
-        assert 'matched_via' in results.columns
-        assert set(results['device_id'].unique()) <= {'DEVICE_A', 'DEVICE_B'}
-
-    def test_query_device_catalog_multiple_search_terms(self, db_with_data):
-        """Test catalog with multiple search terms per device."""
-        catalog = [
-            {
-                'device_id': 'DEVICE_GROUP',
-                'search_terms': ['Test Device A', 'Test Device B', 'Test Device C'],
-                'pma_pmn_numbers': []
-            }
-        ]
-
-        results = analysis_helpers.query_device_catalog(db_with_data, catalog)
-
-        assert len(results) > 0
-        assert 'device_id' in results.columns
-        assert (results['device_id'] == 'DEVICE_GROUP').all()
-        # Should have matched via different search terms
-        assert 'matched_via' in results.columns
-
-    def test_query_device_catalog_with_pmn(self, db_with_data):
-        """Test catalog search using PMN/PMA numbers."""
-        # Add PMA_PMN_NUM to master table
-        db_with_data.conn.execute("ALTER TABLE master ADD COLUMN PMA_PMN_NUM TEXT")
-        db_with_data.conn.execute("UPDATE master SET PMA_PMN_NUM = 'P123456' WHERE MDR_REPORT_KEY = 1")
-        db_with_data.conn.commit()
-
-        catalog = [
-            {
-                'device_id': 'DEVICE_WITH_PMN',
-                'search_terms': [],
-                'pma_pmn_numbers': ['P123456']
-            }
-        ]
-
-        results = analysis_helpers.query_device_catalog(db_with_data, catalog)
-
-        assert len(results) >= 1
-        assert 'device_id' in results.columns
-        assert (results['device_id'] == 'DEVICE_WITH_PMN').all()
-        # Should have one result matched via PMN
-        pmn_matches = results[results['matched_via'].str.contains('PMN:')]
-        assert len(pmn_matches) >= 1
-
-    def test_query_device_catalog_deduplication(self, db_with_data):
-        """Test that catalog deduplicates within device."""
-        catalog = [
-            {
-                'device_id': 'DEVICE_A',
-                'search_terms': ['Test Device', 'Device A'],  # Both will match same reports
-                'pma_pmn_numbers': []
-            }
-        ]
-
-        results = analysis_helpers.query_device_catalog(db_with_data, catalog)
-
-        # Should have no duplicate MDR_REPORT_KEYs within the same device
-        device_a_results = results[results['device_id'] == 'DEVICE_A']
-        assert len(device_a_results) == device_a_results['MDR_REPORT_KEY'].nunique()
-
-    def test_query_device_catalog_with_date_filters(self, db_with_data):
-        """Test catalog with date filtering."""
-        catalog = [
-            {
-                'device_id': 'DEVICE_2021',
-                'search_terms': ['Test Device'],
-                'pma_pmn_numbers': []
-            }
-        ]
-
-        results = analysis_helpers.query_device_catalog(
-            db_with_data, catalog,
-            start_date='2021-01-01',
-            end_date='2021-12-31'
-        )
-
-        # Should only get 2021 results
-        if len(results) > 0:
-            assert all(pd.to_datetime(results['DATE_RECEIVED']).dt.year == 2021)
-
-    def test_query_device_catalog_empty_results(self, db_with_data):
-        """Test catalog with no matching devices."""
-        catalog = [
-            {
-                'device_id': 'NONEXISTENT',
-                'search_terms': ['Device That Does Not Exist'],
-                'pma_pmn_numbers': []
-            }
-        ]
-
-        results = analysis_helpers.query_device_catalog(db_with_data, catalog)
-
-        assert len(results) == 0
-        assert isinstance(results, pd.DataFrame)
-
-    def test_query_device_catalog_missing_device_id(self, db_with_data):
-        """Test that missing device_id raises error."""
-        catalog = [
-            {
-                'search_terms': ['Test Device'],
-                'pma_pmn_numbers': []
-            }
-        ]
-
-        with pytest.raises(ValueError, match="must have a 'device_id' field"):
-            analysis_helpers.query_device_catalog(db_with_data, catalog)
-
-    def test_query_device_catalog_via_db_instance(self, db_with_data):
-        """Test that query_device_catalog works through database instance."""
-        catalog = [
-            {
-                'device_id': 'DEVICE_A',
-                'search_terms': ['Test Device A'],
-                'pma_pmn_numbers': []
-            }
-        ]
-
-        results = db_with_data.query_device_catalog(catalog)
-        assert len(results) > 0
-        assert 'device_id' in results.columns
 
     def test_hierarchical_brand_standardization_via_db_instance(self, db_with_data):
         """Test hierarchical standardization through database instance."""
-        results = db_with_data.query_device(device_name='Test Device')
+        # Use search_by_device_names instead of old query_device with device_name
+        results = db_with_data.search_by_device_names('Test Device')
 
         specific = {
             'test device a': 'Test Device A (Specific)',
@@ -750,38 +569,6 @@ class TestAnalysisHelpersIntegration:
         assert 'device_family' in result.columns
         assert 'manufacturer' in result.columns
         assert len(result) == len(results)  # Should preserve all rows
-
-    def test_hierarchical_brand_standardization_integration_workflow(self, db_with_data):
-        """Test full workflow: query -> hierarchical standardization -> analysis."""
-        # Query devices
-        results = db_with_data.query_multiple_devices(['Test Device A', 'Test Device B'])
-
-        # Apply hierarchical standardization
-        specific = {
-            'test device a': 'Device A Specific Model',
-            'test device b': 'Device B Specific Model',
-        }
-        # Manufacturer mapping needs to match MANUFACTURER_D_NAME column values
-        manufacturer = {
-            'acme': 'Test Corp',
-            'beta': 'Test Corp',
-        }
-
-        standardized = db_with_data.hierarchical_brand_standardization(
-            results,
-            specific_mapping=specific,
-            manufacturer_mapping=manufacturer
-        )
-
-        # Analyze by manufacturer
-        mfr_summary = db_with_data.summarize_by_brand(
-            standardized,
-            group_column='manufacturer'
-        )
-
-        assert 'counts' in mfr_summary
-        assert 'Test Corp' in mfr_summary['counts']
-        assert mfr_summary['counts']['Test Corp'] > 0
 
 
 if __name__ == '__main__':

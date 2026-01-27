@@ -8,18 +8,10 @@ Complete technical reference for the `PyMAUDE` library.
   - [Initialization](#initialization)
   - [Data Management](#data-management)
   - [Querying](#querying)
+  - [Device Search (Boolean)](#device-search-boolean)
   - [Helper Query Methods](#helper-query-methods)
   - [Export & Utilities](#export--utilities)
   - [Internal Methods](#internal-methods-advanced)
-- [SelectionManager Class](#selectionmanager-class)
-  - [Group Management](#group-management)
-  - [Search](#search)
-  - [Decisions](#decisions)
-  - [Phase Navigation](#phase-navigation)
-  - [Finalization](#finalization)
-  - [Persistence](#persistence)
-- [SelectionResults Class](#selectionresults-class)
-- [SelectionWidget Class](#selectionwidget-class)
 
 ---
 
@@ -147,25 +139,57 @@ db.add_years('all', ...)        # 1991 to present (use with caution!)
 **Examples**:
 
 ```python
-# Download single year of device data
+# Download single year of device data (RECOMMENDED - use download=True)
 db.add_years(1998, tables=['device'], download=True)
 
 # Multiple years, device + text data
 db.add_years('2018-2020', tables=['device', 'text'], download=True)
 
-# Use existing files (no download)
+# Strict offline mode - fails if files missing (rarely needed)
 db.add_years(2020, tables=['device'], download=False, data_dir='./my_data')
 
 # Strict mode - fail if any file missing
 db.add_years([2018, 2019], strict=True, download=True)
 ```
 
+> **💡 Quick Tip:** Almost always use `download=True`. This enables smart caching: uses local files if available, downloads only what's missing. The `download=False` option is only for strict offline mode (never attempt network activity).
+
 **Notes**:
+- **Download and Processing Control**: PyMAUDE provides independent flags for controlling data updates:
+
+  **`download` flag** (default: `False`)
+  - Controls whether to allow network downloads from FDA
+  - `True`: **Smart behavior** - use cached files if available, download if missing (recommended)
+  - `False`: **Strict local-only mode** - never attempt network download, fail if files missing
+  - **Most users should always use `download=True`** for normal operation
+  - **Only use `download=False` for:** Offline work, testing with pre-downloaded files, or CI/CD pipelines that want explicit failures on missing files rather than automatic downloads
+
+  **`force_download` flag** (default: `False`)
+  - Controls download caching behavior when `download=True`
+  - `True`: Always download fresh files from FDA, bypassing local zip cache
+  - `False`: Use cached local zip files if they exist, download only if missing
+  - **Use when:** You suspect FDA has updated their files and want to ensure you get fresh copies
+  - Only meaningful when `download=True`
+  - **Note:** The common pattern `download=True, force_download=False` already gives you smart behavior: uses cache when available, downloads when missing
+
+  **`force_refresh` flag** (default: `False`)
+  - Controls database processing behavior
+  - `True`: Re-process files into database, even if checksums match
+  - `False`: Skip processing if file checksums haven't changed (smart default)
+  - **Use when:** Rebuilding database from existing files (e.g., after corruption)
+  - Works with both downloaded and local files
+
 - **Checksum Tracking**: Automatically prevents duplicate data when adding the same year multiple times
   - First run: Processes file and stores SHA256 checksum
-  - Subsequent runs: Skips processing if file unchanged (instant!)
-  - FDA updates: Detects changed files and automatically refreshes data
-  - Use `force_refresh=True` to reload data even if unchanged
+  - Subsequent runs:
+    - With `force_download=False`: Uses cached zip files
+    - Computes checksum of local files
+    - Skips processing if checksum unchanged (instant!)
+    - Re-processes if FDA updated the file (checksum changed)
+  - **Forcing updates:**
+    - `force_download=True`: Get fresh files from FDA
+    - `force_refresh=True`: Re-process even if unchanged
+
 - **Cumulative File Fallback**: For master and patient tables (cumulative files), the library automatically handles FDA's delayed update schedule
   - If the expected cumulative file isn't available (e.g., `mdrfoithru2025.zip` in early January 2026), the library will automatically try older files
   - Falls back through up to 3 years (e.g., tries 2025 → 2024 → 2023)
@@ -177,35 +201,62 @@ db.add_years([2018, 2019], strict=True, download=True)
 - Default chunk_size (100000) works for most systems
 - Lower chunk_size if you encounter memory issues
 
-**Examples with Checksum Tracking**:
+**Common Scenarios**:
 
 ```python
-# First load - processes file
-db.add_years(2020, tables=['device'], download=True)
+# Scenario 1: First download
+db.add_years('2020-2024', download=True)
+# Downloads new files, processes them
 
-# Second load - skips processing (file unchanged)
-db.add_years(2020, tables=['device'])  # Instant! Prints: "device for year 2020 already loaded and unchanged, skipping"
+# Scenario 2: Re-run without changes (uses caches efficiently)
+db.add_years('2020-2024', download=True)
+# Uses cached zip files
+# Skips processing (checksums match)
+# Instant!
 
-# Force refresh (ignore checksums)
-db.add_years(2020, tables=['device'], force_refresh=True)  # Reprocesses even if unchanged
+# Scenario 3: Get FDA updates (RECOMMENDED for updates)
+db.add_years('2020-2024', download=True, force_download=True)
+# Re-downloads files even if cached locally
+# Only processes if checksums changed (efficient!)
+# Use this when FDA has updated their files
 
-# FDA updates historical data
-db.add_years(2020, tables=['device'], download=True)
-# If FDA changed the file: Automatically detects change, deletes old 2020 data, loads new version
-# If unchanged: Skips processing
+# Scenario 4: Rebuild database from existing files
+db.add_years('2020-2024', download=False, force_refresh=True)
+# Uses existing local files
+# Re-processes everything into database
+# Use when database is corrupted or you want to rebuild
+
+# Scenario 5: Fresh start (re-download and rebuild everything)
+db.add_years('2020-2024', download=True, force_download=True, force_refresh=True)
+# Re-downloads everything from FDA
+# Re-processes everything into database
+# Nuclear option - rarely needed
 ```
+
+**Understanding the Flags**:
+
+| Scenario | `download` | `force_download` | `force_refresh` | Result |
+|----------|-----------|-----------------|----------------|---------|
+| **Normal operation (recommended)** | `True` | `False` | `False` | Uses cached zips, downloads if missing, skips processing if checksums match |
+| **Get FDA updates** | `True` | `True` | `False` | Fresh download bypassing cache, processes only if changed |
+| **Rebuild database** | `False` | `False` | `True` | Uses existing local files only, re-processes everything |
+| **Nuclear option** | `True` | `True` | `True` | Re-downloads and re-processes everything |
+| **Offline mode** | `False` | `False` | `False` | Uses existing local files only, skips if checksums match |
+
+**Note:** The rows with `download=False` are for special cases only (offline work, testing, CI/CD). For normal use, always use `download=True`.
 
 **Related**: `update()`, `_download_file()`, `_make_file_path()`
 
 ---
 
-#### `update(add_new_years, download=True)`
+#### `update(add_new_years, download=True, force_download=False)`
 
 Update existing years in database with latest FDA data.
 
 **Parameters**:
 - `add_new_years` (bool, required keyword-only): If True, also adds any missing years since the most recent year in database. If False, only refreshes existing years.
 - `download` (bool, optional): If True, download files from FDA. If False, use local files (default: True)
+- `force_download` (bool, optional): If True, re-download from FDA even if files exist locally (default: False). Use when FDA has updated their files. Only has effect when `download=True`.
 
 **Returns**: None
 
@@ -221,14 +272,18 @@ db.update(add_new_years=True)
 
 # Update from local files without downloading
 db.update(add_new_years=False, download=False)
+
+# Force fresh download from FDA (RECOMMENDED for getting FDA updates)
+db.update(add_new_years=False, force_download=True)
 ```
 
 **Notes**:
 - Uses checksum tracking to skip files that haven't changed
 - Only reprocesses data if FDA has updated source files
+- **Getting FDA Updates**: Use `force_download=True` to bypass local zip cache and get fresh files from FDA. Without this flag, cached zip files are used and FDA updates won't be detected.
 - When `add_new_years=True`, fills all gaps from max existing year to current year
 - Returns early with message if database is empty
-- Requires internet connection
+- Requires internet connection (unless `download=False`)
 
 **Related**: `add_years()`, `_get_latest_available_year()`, `_get_years_in_db()`
 
@@ -282,65 +337,302 @@ df = db.query("""
 
 ---
 
-#### `query_device(device_name=None, product_code=None, start_date=None, end_date=None)`
+#### `query_device(brand_name=None, generic_name=None, manufacturer_name=None, device_name_concat=None, product_code=None, pma_pmn=None, start_date=None, end_date=None, deduplicate_events=True)`
 
-Query device events with optional filters.
+Query device events by exact field matching (case-insensitive).
+
+**Purpose**: Precise queries for known device names, manufacturers, or regulatory numbers. For flexible boolean searching, use `search_by_device_names()`.
 
 **Parameters**:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `device_name` | str | Filter by generic/brand name (partial match, case-insensitive) |
-| `product_code` | str | Filter by exact FDA product code |
-| `start_date` | str | Only events on/after this date (format: 'YYYY-MM-DD') |
-| `end_date` | str | Only events on/before this date (format: 'YYYY-MM-DD') |
+| `brand_name` | str | Exact brand name match (case-insensitive) |
+| `generic_name` | str | Exact generic name match (case-insensitive) |
+| `manufacturer_name` | str | Exact manufacturer match (case-insensitive) |
+| `device_name_concat` | str | Exact match on concatenated name column |
+| `product_code` | str | Exact FDA product code |
+| `pma_pmn` | str | Exact PMA or PMN number (searches both fields) |
+| `start_date` | str | Only events on/after this date ('YYYY-MM-DD') |
+| `end_date` | str | Only events on/before this date ('YYYY-MM-DD') |
+| `deduplicate_events` | bool | If True, deduplicate by EVENT_KEY (default: True) |
 
 **Returns**: pandas.DataFrame with columns from master + device tables joined
 
 **Examples**:
 
 ```python
-# Search by device name (partial match)
-catheters = db.query_device(device_name='catheter')
+# Exact brand match
+venovo = db.query_device(brand_name='Venovo')
 
-# Exact product code
+# Exact generic name
+stents = db.query_device(generic_name='Venous Stent')
+
+# Exact manufacturer
+medtronic = db.query_device(manufacturer_name='Medtronic')
+
+# Product code (as before)
 devices = db.query_device(product_code='NIQ')
 
-# Date range
-recent = db.query_device(
-    device_name='pacemaker',
-    start_date='2020-01-01',
-    end_date='2020-12-31'
+# PMA/PMN number
+pma_devices = db.query_device(pma_pmn='P180037')
+
+# Multiple parameters (AND logic)
+specific = db.query_device(
+    brand_name='Venovo',
+    manufacturer_name='Medtronic'
 )
 
-# Multiple filters
-results = db.query_device(
-    device_name='stent',
-    start_date='2019-01-01'
+# With date filtering
+recent = db.query_device(
+    brand_name='Venovo',
+    start_date='2020-01-01',
+    end_date='2020-12-31'
 )
 ```
 
 **Notes**:
-- All parameters are optional (omit for no filtering)
-- `device_name` matches both GENERIC_NAME and BRAND_NAME
-- Returns joined data from master and device tables
-- Empty DataFrame if no matches
+- **Exact matching**: All name parameters use exact case-insensitive matching (not partial/substring)
+- **Multiple parameters**: Combine with AND logic
+- **At least one required**: Must specify at least one search parameter
+- **pma_pmn**: Searches PMA_PMN_NUM field in master table (exact match)
+- For partial matching or boolean logic, use `search_by_device_names()`
 
 **Common Patterns**:
 
 ```python
-# Get all events for specific device
-all_pacers = db.query_device(device_name='pacemaker')
+# Known brand query
+results = db.query_device(brand_name='AngioJet Zelante')
 
-# Count results
-count = len(db.query_device(device_name='stent'))
+# Manufacturer analysis
+all_medtronic = db.query_device(manufacturer_name='Medtronic')
 
-# Get specific columns
-results = db.query_device(device_name='catheter')
-print(results[['GENERIC_NAME', 'BRAND_NAME', 'EVENT_TYPE']])
+# Regulatory lookup
+pma_devices = db.query_device(pma_pmn='K123456')
+
+# Combine exact matches
+results = db.query_device(
+    generic_name='Thrombectomy Catheter',
+    manufacturer_name='Argon Medical'
+)
 ```
 
-**Related**: `query()`, `get_trends_by_year()`, `export_subset()`
+**Related**: `query()`, `search_by_device_names()`, `get_trends_by_year()`, `export_subset()`
+
+**Author**: Jacob Schwartz <jaschwa@umich.edu>
+**Copyright**: 2026, GNU GPL v3
+
+---
+
+### Device Search (Boolean)
+
+Advanced device search with AND/OR boolean logic. These methods provide more flexible searching than `query_device()`.
+
+#### `create_search_index()`
+
+Create concatenated search column and index for fast boolean device searches.
+
+This is a **one-time operation** that optimizes the database for fast boolean searches. It adds a `DEVICE_NAME_CONCAT` column to the device table (containing BRAND_NAME, GENERIC_NAME, and MANUFACTURER_D_NAME concatenated together) and creates an index on it.
+
+**Parameters**: None
+
+**Returns**: dict with:
+- `created` (bool): True if column was created, False if already existed
+- `rows_updated` (int): Number of rows updated (if created)
+- `time_seconds` (float): Time taken
+
+**Examples**:
+
+```python
+# One-time setup
+db = MaudeDatabase('maude.db')
+db.add_years('2020-2024', tables=['device'], download=True)
+
+# Create search index (do this once)
+result = db.create_search_index()
+print(f"Indexed {result['rows_updated']:,} devices in {result['time_seconds']:.1f}s")
+
+# Now searches will be much faster
+results = db.search_devices(['argon', 'penumbra'])
+```
+
+**Notes**:
+- This method is **idempotent** - safe to call multiple times
+- If column already exists, returns immediately with `created=False`
+- Recommended to run after `add_years()` for optimal performance
+- Index creation takes ~5-30 seconds for typical database sizes
+- Can be skipped - `search_devices()` works without it (but slower)
+
+**Related**: `search_devices()`, `add_years()`
+
+---
+
+#### `search_by_device_names(criteria, start_date=None, end_date=None, deduplicate_events=True, use_concat_column=True, group_column='search_group')`
+
+Search for device events using boolean name matching with optional grouping.
+
+**Purpose**: Flexible partial-match search with AND/OR boolean logic. Ideal for exploratory analysis and comparing device categories. For exact matching on known names, use `query_device()`.
+
+This method provides powerful device searching:
+- **Single string**: Simple search for one term
+- **List of strings**: OR search (matches ANY term)
+- **List of lists**: OR of AND groups (complex boolean logic)
+- **Dict**: Grouped search returning results with `search_group` column for comparative analysis
+
+**Parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `criteria` | str, list, list of lists, or dict | Required | Search criteria (see examples below) |
+| `start_date` | str | None | Only events on/after this date ('YYYY-MM-DD') |
+| `end_date` | str | None | Only events on/before this date ('YYYY-MM-DD') |
+| `deduplicate_events` | bool | True | If True, return one row per EVENT_KEY |
+| `use_concat_column` | bool | True | Use concatenated search column (faster if `create_search_index()` was called) |
+| `group_column` | str | 'search_group' | Column name for group membership (dict input only) |
+
+**Returns**: pandas.DataFrame with matching records
+- Dict input: includes `search_group` column tracking group membership
+- Non-dict input: no group column
+
+**Examples - Basic Search**:
+
+```python
+# Simple single-term search
+results = db.search_by_device_names('argon')
+
+# OR search - matches ANY of these terms
+results = db.search_by_device_names(['argon', 'penumbra', 'angiojet'])
+# Returns devices containing "argon" OR "penumbra" OR "angiojet"
+
+# AND search - both terms must match
+results = db.search_by_device_names([['argon', 'cleaner']])
+# Returns devices containing BOTH "argon" AND "cleaner"
+
+# Complex boolean: (A AND B) OR C
+results = db.search_by_device_names([
+    ['argon', 'cleaner'],  # Argon Cleaner devices
+    'angiojet'              # OR AngioJet devices
+])
+# Returns: (argon AND cleaner) OR (angiojet)
+
+# Three-way OR with AND groups
+results = db.search_by_device_names([
+    ['argon', 'cleaner'],      # Argon Cleaner
+    ['boston', 'angiojet'],    # OR Boston AngioJet
+    ['penumbra', 'indigo']     # OR Penumbra Indigo
+])
+
+# With date filtering
+results = db.search_by_device_names(
+    [['argon', 'cleaner'], 'angiojet'],
+    start_date='2020-01-01',
+    end_date='2023-12-31'
+)
+```
+
+**Examples - Grouped Search (Dict Input)**:
+
+```python
+# Grouped search for device comparison
+results = db.search_by_device_names({
+    'mechanical': [['argon', 'cleaner'], 'angiojet'],
+    'aspiration': [['penumbra', 'indigo'], ['penumbra', 'lightning']],
+    'other': 'cleaner xt'
+})
+
+# Results include search_group column
+print(results['search_group'].unique())
+# Output: ['mechanical', 'aspiration', 'other']
+
+# Use with helper functions for comparative analysis
+summary = db.summarize_by_brand(results)  # Automatically groups by search_group
+trends = db.get_trends_by_year(results)    # Includes search_group breakdown
+comparison = db.event_type_comparison(results)  # Compares groups
+
+# Custom group column name
+results = db.search_by_device_names(
+    {'venous': 'venous stent', 'arterial': 'arterial stent'},
+    group_column='vessel_type'
+)
+
+# With date filtering (applies to all groups)
+results = db.search_by_device_names(
+    {'g1': 'argon', 'g2': 'penumbra'},
+    start_date='2020-01-01'
+)
+```
+
+**Grouped Search - Overlap Handling**:
+
+When using dict input, events can match multiple groups. PyMAUDE handles this with "first-match-wins" logic:
+- Events only appear in the **first matching group** (based on Python dict order)
+- Warnings issued per source group: "N events previously matched to 'group_X' were skipped from 'group_Y'"
+- Empty groups (0 matches) are absent from returned DataFrame
+
+```python
+# Overlapping groups
+results = db.search_by_device_names({
+    'all_argon': 'argon',
+    'cleaner_xt': [['argon', 'cleaner', 'xt']]  # Subset of all_argon
+})
+# ⚠️ Warning: "X events previously matched to 'all_argon' were skipped from 'cleaner_xt'"
+# Cleaner XT devices only appear in 'all_argon' group, not 'cleaner_xt'
+```
+
+**Search Logic**:
+
+```python
+# Single list = OR all terms
+['A', 'B', 'C']  →  A OR B OR C
+
+# List of lists = OR groups, AND within each group
+[['A', 'B'], ['C']]  →  (A AND B) OR C
+
+# Complex nested logic
+[['A', 'B'], ['C', 'D'], ['E']]  →  (A AND B) OR (C AND D) OR E
+
+# Dict = grouped searches with search_group column
+{'group1': ['A', 'B'], 'group2': 'C'}  →  Two separate searches, results tagged with group name
+```
+
+**Notes**:
+- All searches are **case-insensitive**
+- Terms are matched as **substrings** (LIKE %term%)
+- Searches across BRAND_NAME, GENERIC_NAME, and MANUFACTURER_D_NAME
+- Run `create_search_index()` first for 10-30x better performance
+- Empty results return empty DataFrame (not None)
+- Special characters (%, _, ', etc.) are automatically escaped
+
+**Performance Tips**:
+- Create search index first: `db.create_search_index()`
+- Use date filters to reduce result set
+- More specific terms = faster searches
+- Consider using `deduplicate_events=False` if you need report-level data
+
+**Common Patterns**:
+
+```python
+# Device family search (manufacturer + device type)
+results = db.search_devices([
+    ['argon', 'thrombectomy'],
+    ['penumbra', 'thrombectomy']
+])
+
+# Exclude pattern (search for A but not B)
+# Note: NOT operator not yet supported - filter results afterward
+results = db.search_devices('argon')
+results = results[~results['BRAND_NAME'].str.contains('BALLOON', case=False, na=False)]
+
+# Count matches without loading all data
+results = db.search_devices(['argon', 'penumbra'])
+print(f"Found {len(results)} devices")
+
+# Get unique device names
+results = db.search_devices(['thrombectomy'])
+unique_brands = results['BRAND_NAME'].unique()
+```
+
+**Related**: `query_device()`, `create_search_index()`, `get_trends_by_year()`
 
 ---
 
@@ -492,34 +784,80 @@ narratives = db.get_narratives_for(results)
 
 ---
 
-#### `trends_for(results_df)`
+#### `get_trends_by_year(results_df)`
 
-Get yearly trends for a query result DataFrame.
+Get year-by-year trends for device events from a results DataFrame.
 
-Analyzes the provided DataFrame to compute yearly event counts and breakdowns by event type.
+**Purpose**: DataFrame-only helper for analyzing temporal trends. Accepts results from `search_by_device_names()` or `query_device()` and computes yearly event counts.
 
 **Parameters**:
-- `results_df` (DataFrame): DataFrame with `DATE_RECEIVED` and `EVENT_TYPE` columns
+- `results_df` (DataFrame): DataFrame from search/query with `DATE_RECEIVED` column
 
-**Returns**: pandas.DataFrame with columns: `year`, `event_count`, `deaths`, `injuries`, `malfunctions`
+**Returns**: pandas.DataFrame with columns:
+- `year` (int): Year
+- `event_count` (int): Number of events
+- `search_group` (str, optional): Group name if present in input DataFrame
 
-**Example**:
+**Examples**:
 
 ```python
-# Query for specific device
-results = db.query_device(device_name='pacemaker')
-
-# Get trends just for these results
-trends = db.trends_for(results)
+# From boolean search
+results = db.search_by_device_names('catheter')
+trends = db.get_trends_by_year(results)
 print(trends)
-#    year  event_count  deaths  injuries  malfunctions
-# 0  2020          150       5        45           100
-# 1  2021          165       7        52           106
+#    year  event_count
+# 0  2020          150
+# 1  2021          165
+# 2  2022          180
+
+# From exact query
+results = db.query_device(product_code='NIQ')
+trends = db.get_trends_by_year(results)
+
+# Grouped search - includes search_group breakdown
+results = db.search_by_device_names({
+    'mechanical': [['argon', 'cleaner'], 'angiojet'],
+    'aspiration': 'penumbra'
+})
+trends = db.get_trends_by_year(results)
+print(trends)
+#   search_group  year  event_count
+# 0   mechanical  2020           45
+# 1   mechanical  2021           52
+# 2   aspiration  2020           30
+# 3   aspiration  2021           35
+
+# Trends for single group from grouped search
+g1_only = results[results['search_group'] == 'mechanical']
+trends_g1 = db.get_trends_by_year(g1_only)
 ```
 
-**Implementation Note**: This method is implemented in `analysis_helpers` module.
+**Notes**:
+- **DataFrame-only**: Accepts only DataFrames, not search parameters
+- **Automatic grouping**: If `search_group` column present, includes it in output
+- **Empty handling**: Returns empty DataFrame with correct structure for empty input
+- **Sorting**: Results sorted by year (and search_group if present)
 
-**Related**: `get_trends_by_year()`, `query_device()`
+**Visualization**:
+
+```python
+import matplotlib.pyplot as plt
+
+results = db.search_by_device_names('pacemaker')
+trends = db.get_trends_by_year(results)
+
+plt.plot(trends['year'], trends['event_count'], marker='o')
+plt.xlabel('Year')
+plt.ylabel('Events Reported')
+plt.title('Pacemaker Adverse Events Over Time')
+plt.grid(True, alpha=0.3)
+plt.show()
+```
+
+**Related**: `search_by_device_names()`, `query_device()`, `summarize_by_brand()`
+
+**Author**: Jacob Schwartz <jaschwa@umich.edu>
+**Copyright**: 2026, GNU GPL v3
 
 ---
 
@@ -632,140 +970,6 @@ These convenience methods are available via `db.method_name()` and are implement
 
 ---
 
-#### Multi-Device Analysis
-
-##### `query_multiple_devices(device_names, start_date=None, end_date=None, deduplicate=True, brand_column='query_brand')`
-
-Query multiple device brands and combine results.
-
-**Parameters**:
-- `device_names` (list): List of device names to query
-- `start_date` (str, optional): Start date filter (YYYY-MM-DD)
-- `end_date` (str, optional): End date filter (YYYY-MM-DD)
-- `deduplicate` (bool, default=True): Remove duplicate MDR_REPORT_KEYs
-- `brand_column` (str, default='query_brand'): Column name to track which brand matched
-
-**Returns**: DataFrame with additional columns:
-- `{brand_column}`: Which search term found this report
-- `all_matching_brands`: List of all brands that matched (if deduplicated)
-
-**Examples**:
-
-```python
-# Query multiple venous stent brands
-brands = ['Venovo', 'Vici', 'Zilver Vena', 'Wallstent', 'Abre', 'Duo']
-results = db.query_multiple_devices(
-    brands,
-    start_date='2019-01-01',
-    end_date='2024-12-31'
-)
-
-print(f"Total reports: {len(results)}")
-print(results['query_brand'].value_counts())
-
-# Check for reports matching multiple brands
-multi_brand = results[results['all_matching_brands'].apply(len) > 1]
-print(f"Reports matching multiple brands: {len(multi_brand)}")
-```
-
-**Notes**:
-- Automatically deduplicates by MDR_REPORT_KEY (keeps first occurrence)
-- Tracks which brands matched each report before deduplication
-- More efficient than manual looping and concatenation
-- Prints progress if `verbose=True`
-
-**Related**: `query_device()`, `standardize_brand_names()`
-
----
-
-##### `query_device_catalog(device_catalog, start_date=None, end_date=None)`
-
-Query multiple devices from a catalog with multiple search terms per device.
-
-This helper allows you to efficiently search for a list of devices where each device may have multiple brand names, generic names, and/or PMN/PMA numbers. Ideal for comparative studies where you have a structured list of devices to analyze (e.g., from a product comparison table).
-
-**Parameters**:
-- `device_catalog` (list): List of dicts with device search criteria:
-  ```python
-  [
-      {
-          'device_id': 'CLEANER_XT',  # Your identifier
-          'search_terms': ['CLEANER XT', 'Cleaner 9mm'],  # Brand/generic names
-          'pma_pmn_numbers': ['P180037'],  # Optional PMN/PMA numbers
-      },
-      ...
-  ]
-  ```
-- `start_date` (str, optional): Start date filter (YYYY-MM-DD)
-- `end_date` (str, optional): End date filter (YYYY-MM-DD)
-
-**Returns**: DataFrame with all matching reports plus additional columns:
-- `device_id`: Your identifier from the catalog
-- `matched_via`: Which search term or PMN found this report
-- All columns from master and device tables
-
-**Examples**:
-
-```python
-# Define device catalog (e.g., from a thrombectomy device comparison table)
-devices = [
-    {
-        'device_id': 'CLEANER_XT',
-        'search_terms': ['CLEANER XT'],
-        'pma_pmn_numbers': ['P180037']
-    },
-    {
-        'device_id': 'ANGIOJET_ZELANTE',
-        'search_terms': ['AngioJet Zelante', 'Zelante DVT'],
-        'pma_pmn_numbers': []  # None available
-    },
-    {
-        'device_id': 'INARI_FLOWTRIEVER',
-        'search_terms': ['FlowTriever', 'Inari FlowTriever'],
-        'pma_pmn_numbers': ['P180013']
-    },
-]
-
-# Query all devices at once
-results = db.query_device_catalog(
-    devices,
-    start_date='2019-01-01',
-    end_date='2024-12-31'
-)
-
-# Analyze by device
-print(f"Total reports: {len(results)}")
-print("\nBreakdown by device:")
-print(results.groupby('device_id').size())
-
-# See which search terms found each report
-print("\nSample of matched results:")
-print(results[['device_id', 'matched_via', 'BRAND_NAME', 'DATE_RECEIVED']].head(10))
-
-# Get event type breakdown per device
-for device_id in results['device_id'].unique():
-    device_data = results[results['device_id'] == device_id]
-    breakdown = db.event_type_breakdown_for(device_data)
-    print(f"\n{device_id}: {breakdown}")
-```
-
-**Notes**:
-- Search terms use partial, case-insensitive matching (SQL LIKE `%term%`)
-- Reports matching multiple search terms for the same device are deduplicated
-- Reports matching different devices appear once per device
-- PMN/PMA searches are exact matches
-- More efficient than manual looping through devices
-- Prints progress if `verbose=True`
-
-**Use Cases**:
-- Comparative device studies with structured device lists
-- Analyzing devices from product specification tables
-- Research where PMN/PMA numbers are available but sparse
-- Systematic review of multiple related devices
-
-**Related**: `query_multiple_devices()`, `query_device()`
-
----
 
 #### Data Enrichment Methods
 
@@ -1192,21 +1396,21 @@ print(f"Inflation: {(naive_count/correct_count - 1)*100:.1f}%")
 
 #### Summary and Aggregation
 
-##### `summarize_by_brand(results_df, group_column='standard_brand', include_temporal=True)`
+##### `summarize_by_brand(results_df, group_column='search_group', include_temporal=True)`
 
-Generate comprehensive summary statistics by device brand.
+Generate comprehensive summary statistics by device group or brand.
 
 **Parameters**:
-- `results_df` (DataFrame): Results from query
-- `group_column` (str, default='standard_brand'): Column to group by
+- `results_df` (DataFrame): Results from `search_by_device_names()` or `query_device()`
+- `group_column` (str, default='search_group'): Column to group by
 - `include_temporal` (bool, default=True): Include yearly breakdowns
 
 **Returns**: dict with:
 ```python
 {
-    'counts': dict,            # Total reports per brand
-    'event_types': DataFrame,  # Event type breakdown per brand
-    'date_range': DataFrame,   # First/last dates per brand
+    'counts': dict,            # Total reports per group
+    'event_types': DataFrame,  # Event type breakdown per group
+    'date_range': DataFrame,   # First/last dates per group
     'temporal': DataFrame      # Yearly counts (if include_temporal=True)
 }
 ```
@@ -1214,68 +1418,44 @@ Generate comprehensive summary statistics by device brand.
 **Examples**:
 
 ```python
-# Multi-device study summary
-brands = ['Venovo', 'Vici', 'Zilver Vena']
-results = db.query_multiple_devices(brands, start_date='2019-01-01')
-results = db.standardize_brand_names(results, {'venovo': 'Venovo', 'vici': 'Vici', 'zilver': 'Zilver Vena'})
+# Grouped search analysis
+results = db.search_by_device_names({
+    'mechanical': [['argon', 'cleaner'], 'angiojet'],
+    'aspiration': 'penumbra'
+})
 
-summary = db.summarize_by_brand(results)
+summary = db.summarize_by_brand(results)  # Uses search_group automatically
 
 # View counts
-print("Reports by brand:")
-for brand, count in summary['counts'].items():
-    print(f"  {brand}: {count}")
+print("Reports by device group:")
+for group, count in summary['counts'].items():
+    print(f"  {group}: {count}")
 
 # Export summary tables
 summary['temporal'].to_csv('table_temporal_trends.csv')
 summary['event_types'].to_csv('table_event_types.csv')
+
+# Use with brand standardization
+results = db.search_by_device_names('stent')
+results = db.standardize_brand_names(results, {'venovo': 'Venovo', 'zilver': 'Zilver Vena'})
+summary = db.summarize_by_brand(results, group_column='standard_brand')
 ```
 
 **Notes**:
-- Requires `group_column` to exist (use `standardize_brand_names()` first)
+- **Default**: Works with `search_group` column from grouped search
+- Requires `group_column` to exist in DataFrame
 - Handles missing columns gracefully (skips event_types if EVENT_TYPE missing)
 - Useful for generating manuscript tables
 
-**Related**: `query_multiple_devices()`, `standardize_brand_names()`
+**Related**: `search_by_device_names()`, `standardize_brand_names()`, `event_type_comparison()`
+
+**Author**: Jacob Schwartz <jaschwa@umich.edu>
+**Copyright**: 2026, GNU GPL v3
 
 ---
 
 #### Brand Name Standardization
 
-##### `find_brand_variations(search_terms, max_results=50)`
-
-Find all brand name variations in database.
-
-**Parameters**:
-- `search_terms` (str or list): Search term(s) to find variations for
-- `max_results` (int, default=50): Maximum variations to return
-
-**Returns**: DataFrame with columns:
-- `BRAND_NAME`: Actual brand name in database
-- `count`: Number of reports with this brand name
-- `sample_mdr_keys`: Sample report keys (comma-separated)
-
-**Examples**:
-
-```python
-# Discover all "Venovo" variations
-variations = db.find_brand_variations('venovo')
-print(variations)
-#            BRAND_NAME  count  sample_mdr_keys
-# 0              VENOVO    234  1234567, 1234568, ...
-# 1              Venovo    123  9876543, 9876544, ...
-# 2  Venovo Venous Stent   45  5555555, 5555556, ...
-```
-
-**Notes**:
-- Case-insensitive search
-- Uses SQL LIKE with wildcards (partial matching)
-- Ordered by frequency (most common first)
-- Useful before standardization to understand naming inconsistencies
-
-**Related**: `standardize_brand_names()`, `query_multiple_devices()`
-
----
 
 ##### `standardize_brand_names(results_df, mapping_dict, source_col='BRAND_NAME', target_col='standard_brand')`
 
@@ -1494,13 +1674,13 @@ print(f"Significant: {chi2_result['significant']}")
 
 ---
 
-##### `event_type_comparison(results_df, group_var='standard_brand')`
+##### `event_type_comparison(results_df, group_var='search_group')`
 
 Compare event type distributions across groups with statistical tests.
 
 **Parameters**:
 - `results_df` (DataFrame): Results with EVENT_TYPE column
-- `group_var` (str, default='standard_brand'): Variable to compare across
+- `group_var` (str, default='search_group'): Variable to compare across
 
 **Returns**: dict with:
 ```python
@@ -1515,24 +1695,37 @@ Compare event type distributions across groups with statistical tests.
 **Examples**:
 
 ```python
-# Compare event severity across devices
-comparison = db.event_type_comparison(results, group_var='standard_brand')
+# Grouped search comparison
+results = db.search_by_device_names({
+    'mechanical': [['argon', 'cleaner'], 'angiojet'],
+    'aspiration': 'penumbra'
+})
+comparison = db.event_type_comparison(results)  # Uses search_group automatically
 
 print(comparison['summary'])
 # Output:
-# Event Type Comparison by standard_brand
+# Event Type Comparison by search_group
 # ======================================
 # Chi-square: 45.23 (p=0.0001)
-# Device A: 4.5% deaths, 30.2% injuries, 65.3% malfunctions
-# Device B: 2.0% deaths, 50.1% injuries, 47.9% malfunctions
+# mechanical: 4.5% deaths, 30.2% injuries, 65.3% malfunctions
+# aspiration: 2.0% deaths, 50.1% injuries, 47.9% malfunctions
+
+# With brand standardization
+results = db.search_by_device_names('stent')
+results = db.standardize_brand_names(results, {'venovo': 'Venovo', 'zilver': 'Zilver Vena'})
+comparison = db.event_type_comparison(results, group_var='standard_brand')
 ```
 
 **Notes**:
+- **Default**: Works with `search_group` column from grouped search
 - Automatically handles FDA event type abbreviations (D, IN, M)
 - Events can have multiple types
 - Compares serious events (Death/Injury) vs. Malfunction patterns
 
-**Related**: `chi_square_test()`, `event_type_breakdown_for()`
+**Related**: `chi_square_test()`, `event_type_breakdown_for()`, `search_by_device_names()`
+
+**Author**: Jacob Schwartz <jaschwa@umich.edu>
+**Copyright**: 2026, GNU GPL v3
 
 ---
 
@@ -1932,325 +2125,3 @@ db.add_years(2020, chunk_size=10000)  # Default is 100000
 
 ---
 
-## SelectionManager Class
-
-Manages device selection projects for reproducible MAUDE analysis. See [Selection Guide](selection_guide.md) for detailed usage.
-
-### Initialization
-
-#### `__init__(name, file_path=None, database_path=None)`
-
-Create a new selection manager or load existing project.
-
-**Parameters**:
-- `name` (str): Project identifier (alphanumeric and underscores only)
-- `file_path` (str, optional): Path to JSON file. Defaults to `{name}.selection.json`
-- `database_path` (str): Path to MAUDE database. Required for new projects.
-
-**Example**:
-```python
-from pymaude import SelectionManager
-
-# Create new project
-manager = SelectionManager('my_project', 'selections.json', 'maude.db')
-
-# Load existing project
-manager = SelectionManager.load('selections.json')
-```
-
----
-
-### Group Management
-
-#### `create_group(group_name, keywords)`
-
-Create a new device group with search keywords.
-
-**Parameters**:
-- `group_name` (str): Group identifier
-- `keywords` (list): Search terms to match against device fields
-
-**Returns**: dict with group configuration
-
-#### `remove_group(group_name)`
-
-Remove a group from the project.
-
-#### `rename_group(old_name, new_name)`
-
-Rename an existing group.
-
-#### `merge_groups(source_groups, target_name)`
-
-Merge multiple groups into one. Combines keywords and decisions.
-
-#### `get_group_status(group_name)`
-
-Get current status of a group.
-
-**Returns**: dict with status, current_phase, decisions_count, is_finalized
-
----
-
-### Search
-
-#### `get_search_preview(db, keywords)`
-
-Preview search results before creating a group.
-
-**Returns**: dict with counts for each field type
-
-#### `search_candidates(db, group_name, field)`
-
-Search for unique field values matching group keywords.
-
-**Parameters**:
-- `db`: MaudeDatabase instance
-- `group_name` (str): Group to search
-- `field` (str): One of 'brand_name', 'generic_name', 'manufacturer'
-
-**Returns**: DataFrame with value, mdr_count, decision columns
-
-#### `get_pending_values(db, group_name, field)`
-
-Get values that still need a decision (where decision is None).
-
----
-
-### Decisions
-
-#### `set_decision(group_name, field, value, decision)`
-
-Set decision for a single field value.
-
-**Parameters**:
-- `group_name` (str): Group name
-- `field` (str): One of 'brand_name', 'generic_name', 'manufacturer'
-- `value` (str): The field value to decide on
-- `decision` (str): One of 'accept', 'reject', 'defer'
-
-#### `set_decisions_bulk(group_name, field, decisions)`
-
-Set decisions for multiple values at once.
-
-**Parameters**:
-- `decisions` (dict): Maps values to decisions, e.g., `{'VALUE1': 'accept', 'VALUE2': 'reject'}`
-
----
-
-### Phase Navigation
-
-#### `advance_phase(group_name)`
-
-Move to the next phase. Returns new phase name.
-
-#### `go_back_phase(group_name)`
-
-Go back to previous phase.
-
-#### `reset_phase(group_name, field)`
-
-Clear all decisions for a specific phase.
-
----
-
-### Finalization
-
-#### `finalize_group(db, group_name)`
-
-Finalize group by capturing MDR key snapshot.
-
-**Returns**: dict with mdr_count and pending_count
-
-#### `get_results(db, mode='decisions', groups=None, verbose=False)`
-
-Execute queries and return results.
-
-**Parameters**:
-- `mode` (str): 'decisions' to re-run queries, 'snapshot' for exact MDR keys
-- `groups` (list, optional): Specific groups to include
-- `verbose` (bool, default=False): If True, print progress messages for each group
-
-**Returns**: SelectionResults object
-
-**Example**:
-```python
-# With progress output
-results = manager.get_results(db, mode='decisions', verbose=True)
-# Output:
-# Getting results for 2 group(s)...
-#   [1/2] Processing 'penumbra'... done (1523 MDRs)
-#   [2/2] Processing 'inari'... done (847 MDRs)
-# All groups complete!
-```
-
----
-
-#### `get_multi_deferred_mdrs(db, group_name, min_deferrals=2)`
-
-Get MDRs that were deferred in multiple phases for further review.
-
-**Parameters**:
-- `db`: MaudeDatabase instance
-- `group_name` (str): Name of the group
-- `min_deferrals` (int, default=2): Minimum number of phases with deferrals
-
-**Returns**: DataFrame with columns:
-- `MDR_REPORT_KEY`: Report key
-- `BRAND_NAME`, `GENERIC_NAME`, `MANUFACTURER_D_NAME`: Device fields
-- `defer_count`: Number of phases where this MDR's values were deferred
-- `deferred_phases`: List of phase names where deferred
-
-**Example**:
-```python
-# Find MDRs deferred in 2+ phases
-multi_deferred = manager.get_multi_deferred_mdrs(db, 'penumbra')
-print(multi_deferred[['BRAND_NAME', 'defer_count', 'deferred_phases']])
-```
-
----
-
-### Persistence
-
-#### `save()`
-
-Save current state to JSON file.
-
-#### `load(file_path)` (classmethod)
-
-Load a SelectionManager from JSON file.
-
----
-
-## SelectionResults Class
-
-DataFrame-compatible container for grouped query results.
-
-### Access Methods
-
-#### `__getitem__(group_name)`
-
-Access a group's DataFrame by name: `results['penumbra']`
-
-#### `__iter__()`
-
-Iterate over group names: `for name in results:`
-
-#### `__len__()`
-
-Number of groups: `len(results)`
-
----
-
-### Methods
-
-#### `to_df(include_group_column=True)`
-
-Combine all groups into a single DataFrame.
-
-**Parameters**:
-- `include_group_column` (bool): Add 'selection_group' column
-
-**Returns**: Combined DataFrame
-
-#### `filter(groups=None, **kwargs)`
-
-Filter results by groups or DataFrame conditions.
-
-**Example**:
-```python
-# Filter to specific groups
-filtered = results.filter(groups=['penumbra', 'inari'])
-
-# Filter by column value
-deaths = results.filter(EVENT_TYPE='D')
-```
-
----
-
-### Properties
-
-#### `groups`
-
-List of group names in results.
-
-#### `summary`
-
-DataFrame with quick counts per group, including overlap detection.
-
----
-
-## SelectionWidget Class
-
-Interactive Jupyter widget for device selection. Requires ipywidgets.
-
-### Initialization
-
-```python
-from pymaude.selection_widget import SelectionWidget
-
-widget = SelectionWidget(manager, db)
-widget.display()
-```
-
-### Methods
-
-#### `display()`
-
-Render the widget in the notebook.
-
----
-
-#### `get_results(mode='decisions')`
-
-Get results programmatically after completing selection.
-
-**Parameters**:
-- `mode` (str): 'decisions' to re-run queries, 'snapshot' for exact MDR keys
-
-**Returns**: SelectionResults object
-
-**Note**: Prints progress messages for each group being processed. Use in a separate cell after `display()` to ensure results are available even with "Run All".
-
-**Example**:
-```python
-# In first cell:
-widget = SelectionWidget(manager, db)
-widget.display()
-
-# In second cell (after completing selection):
-results = widget.get_results()
-df = results.to_df()
-```
-
----
-
-### Properties
-
-#### `results`
-
-The last SelectionResults returned by `get_results()`. Initially None.
-
-#### `manager`
-
-Reference to the underlying SelectionManager.
-
-#### `db`
-
-Reference to the MaudeDatabase.
-
-#### `current_screen`
-
-Current screen being displayed ('main', 'add_group', 'selection', 'multi_deferred', 'summary').
-
----
-
-See [Selection Guide](selection_guide.md) for detailed widget usage.
-
----
-
-**See Also**:
-- [Getting Started Guide](getting_started.md) - Tutorial and basic usage
-- [Selection Guide](selection_guide.md) - Interactive device selection
-- [Research Guide](research_guide.md) - Research workflows and best practices
-- [Troubleshooting](troubleshooting.md) - Solutions to common problems

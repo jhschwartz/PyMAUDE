@@ -3,6 +3,7 @@ import os
 import tempfile
 import shutil
 import sqlite3
+import zipfile
 import pandas as pd
 from datetime import datetime
 import sys
@@ -34,24 +35,25 @@ class TestMaudeDatabase(unittest.TestCase):
         """Create sample MAUDE data files for testing"""
         # Sample master file (cumulative pattern: mdrfoithru2020.txt) - using uppercase column names like real FDA data
         # Include multiple date formats to test flexible parsing
-        master_data = """MDR_REPORT_KEY|DATE_RECEIVED|EVENT_TYPE|MANUFACTURER_NAME|DATE_REPORT|DATE_OF_EVENT
-1234567|01/15/2020|Injury|Test Manufacturer|2020/01/10|2020-01-05
-1234568|02/20/2020|Death|Another Manufacturer|2020/02/15|2020-02-10
-1234569|03/10/2020|Malfunction|Test Manufacturer|2020/03/05|2020-03-01
-1234570|04/15/2020|Death|Test Manufacturer|2020/04/10|2020-04-05
-1234571|05/20/2020|Injury|Another Manufacturer|2020/05/15|2020-05-10"""
+        # EVENT_KEY is needed for deduplication in search_by_device_names()
+        master_data = """MDR_REPORT_KEY|EVENT_KEY|DATE_RECEIVED|EVENT_TYPE|MANUFACTURER_NAME|DATE_REPORT|DATE_OF_EVENT|PMA_PMN_NUM
+1234567|EVT001|01/15/2020|Injury|Test Manufacturer|2020/01/10|2020-01-05|P180037
+1234568|EVT002|02/20/2020|Death|Another Manufacturer|2020/02/15|2020-02-10|K123456
+1234569|EVT003|03/10/2020|Malfunction|Test Manufacturer|2020/03/05|2020-03-01|
+1234570|EVT004|04/15/2020|Death|Test Manufacturer|2020/04/10|2020-04-05|P180037
+1234571|EVT005|05/20/2020|Injury|Another Manufacturer|2020/05/15|2020-05-10|"""
 
         with open(f'{self.test_data_dir}/mdrfoithru2020.txt', 'w') as f:
             f.write(master_data)
 
         # Sample device file (yearly pattern: device2020.txt for year >= 2000) - using uppercase column names like real FDA data
-        # Include date columns with various formats
-        device_data = """MDR_REPORT_KEY|DEVICE_REPORT_PRODUCT_CODE|GENERIC_NAME|BRAND_NAME|DATE_RECEIVED|EXPIRATION_DATE_OF_DEVICE
-1234567|NIQ|Thrombectomy Device|DeviceX|2020/01/15|12/31/2025
-1234568|NIQ|Thrombectomy Device|DeviceY|01/20/2020|
-1234569|ABC|Other Device|DeviceZ|2020-01-25|2025-12-31
-1234570|NIQ|Thrombectomy Device|DeviceW|2020/04/15|12/31/2025
-1234571|ABC|Other Device|DeviceV|2020/05/20|"""
+        # Device table should have MANUFACTURER_D_NAME, not DATE_RECEIVED (DATE_RECEIVED is in master)
+        device_data = """MDR_REPORT_KEY|DEVICE_REPORT_PRODUCT_CODE|GENERIC_NAME|BRAND_NAME|MANUFACTURER_D_NAME|EXPIRATION_DATE_OF_DEVICE
+1234567|NIQ|Thrombectomy Device|DeviceX|Acme Corp|12/31/2025
+1234568|NIQ|Thrombectomy Device|DeviceY|Beta Inc|
+1234569|ABC|Other Device|DeviceZ|Gamma LLC|2025-12-31
+1234570|NIQ|Thrombectomy Device|DeviceW|Acme Corp|12/31/2025
+1234571|ABC|Other Device|DeviceV|Beta Inc|"""
 
         with open(f'{self.test_data_dir}/device2020.txt', 'w') as f:
             f.write(device_data)
@@ -262,11 +264,12 @@ class TestMaudeDatabase(unittest.TestCase):
         db.close()
     
     def test_query_device_by_name(self):
-        """Test query_device with device name filter"""
+        """Test query_device with generic name filter (new exact-match API)"""
         db = MaudeDatabase(self.test_db, verbose=False)
         db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
-        
-        df = db.query_device(device_name='Thrombectomy')
+
+        # Use exact match on generic_name
+        df = db.query_device(generic_name='Thrombectomy Device')
         self.assertEqual(len(df), 3)  # 1234567, 1234568, 1234570
 
         db.close()
@@ -282,59 +285,89 @@ class TestMaudeDatabase(unittest.TestCase):
         db.close()
 
     def test_query_device_by_date_range(self):
-        """Test query_device with date filters"""
+        """Test query_device with date filters (requires search parameter)"""
         db = MaudeDatabase(self.test_db, verbose=False)
         db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
 
-        df = db.query_device(start_date='2020-02-01', end_date='2020-12-31')
-        self.assertEqual(len(df), 4)  # 1234568 (02/20), 1234569 (03/10), 1234570 (04/15), 1234571 (05/20)
+        # Query with product code and date filters
+        df = db.query_device(product_code='NIQ', start_date='2020-02-01', end_date='2020-12-31')
+        self.assertEqual(len(df), 2)  # 1234568 (NIQ, 02/20), 1234570 (NIQ, 04/15)
 
         db.close()
 
     def test_query_device_multiple_filters(self):
-        """Test query_device with multiple filters"""
+        """Test query_device with multiple filters (new exact-match API)"""
         db = MaudeDatabase(self.test_db, verbose=False)
         db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
 
         df = db.query_device(
-            device_name='Thrombectomy',
+            generic_name='Thrombectomy Device',
             start_date='2020-02-01'
         )
         self.assertEqual(len(df), 2)  # 1234568 (02/20), 1234570 (04/15)
-        
+
         db.close()
-    
-    def test_get_trends_by_year(self):
-        """Test get_trends_by_year functionality - requires patient table for outcome data"""
+
+    def test_query_device_by_pma_pmn(self):
+        """Test query_device with PMA/PMN number filter (master table column)"""
         db = MaudeDatabase(self.test_db, verbose=False)
-        db.add_years(2020, tables=['master', 'device', 'patient'], download=False, data_dir=self.test_data_dir, interactive=False)
+        db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
 
-        df = db.get_trends_by_year()
-        self.assertEqual(len(df), 1)
-        self.assertEqual(df.iloc[0]['year'], '2020')
-        self.assertEqual(df.iloc[0]['event_count'], 5)  # 5 total reports
+        # Query by PMA number (should find 1234567 and 1234570)
+        df = db.query_device(pma_pmn='P180037')
+        self.assertEqual(len(df), 2)  # 1234567, 1234570
+        self.assertTrue(all(df['PMA_PMN_NUM'] == 'P180037'))
 
-        # Expected counts (using DISTINCT MDR_REPORT_KEY):
-        # Deaths: 1234568 (D), 1234570 (D;L) = 2 reports with deaths
-        # Injuries: 1234567 (H), 1234570 (D;L - also counted as injury due to L), 1234571 (S) = 3 reports with injuries
-        # No patient record: 1234569 (no patient record) = 1 report
-        # Note: 1234570 is counted in BOTH deaths and injuries due to "D;L"
-        self.assertEqual(df.iloc[0]['deaths'], 2)
-        self.assertEqual(df.iloc[0]['injuries'], 3)
-        self.assertEqual(df.iloc[0]['no_patient_record'], 1)
+        # Query by K number (should find 1234568)
+        df_k = db.query_device(pma_pmn='K123456')
+        self.assertEqual(len(df_k), 1)  # 1234568
+        self.assertEqual(df_k.iloc[0]['PMA_PMN_NUM'], 'K123456')
+
+        # Case insensitive matching
+        df_lower = db.query_device(pma_pmn='p180037')
+        self.assertEqual(len(df_lower), 2)
+
+        db.close()
+
+    def test_get_trends_by_year(self):
+        """Test get_trends_by_year functionality - DataFrame-only method"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+        db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
+
+        # Create search index for search_by_device_names
+        db.create_search_index()
+
+        # Get all results using search_by_device_names (search for "device" to match all)
+        results = db.search_by_device_names('device')  # Should match all devices in test data
+
+        # Get trends from DataFrame
+        trends = db.get_trends_by_year(results)
+
+        # Check structure
+        self.assertIn('year', trends.columns)
+        self.assertIn('event_count', trends.columns)
+
+        # Check that we have results for 2020
+        self.assertEqual(len(trends), 1)
+        self.assertEqual(trends.iloc[0]['year'], 2020)  # Year is now int, not string
+        self.assertEqual(trends.iloc[0]['event_count'], 5)  # 5 total reports
 
         db.close()
     
     def test_get_trends_by_product_code(self):
-        """Test get_trends_by_year with product code filter"""
+        """Test get_trends_by_year with product code filter - DataFrame-only method"""
         db = MaudeDatabase(self.test_db, verbose=False)
-        db.add_years(2020, tables=['master', 'device', 'patient'], download=False, data_dir=self.test_data_dir, interactive=False)
+        db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
 
-        df = db.get_trends_by_year(product_code='NIQ')
+        # Query by product code using exact-match query
+        results = db.query_device(product_code='NIQ')
+
+        # Get trends from DataFrame
+        trends = db.get_trends_by_year(results)
+
         # NIQ reports: 1234567 (H), 1234568 (D), 1234570 (D;L) = 3 reports
-        self.assertEqual(df.iloc[0]['event_count'], 3)
-        self.assertEqual(df.iloc[0]['deaths'], 2)  # 1234568, 1234570
-        self.assertEqual(df.iloc[0]['injuries'], 2)  # 1234567, 1234570
+        self.assertEqual(trends.iloc[0]['event_count'], 3)
+        self.assertEqual(trends.iloc[0]['year'], 2020)
 
         db.close()
     
@@ -352,18 +385,18 @@ class TestMaudeDatabase(unittest.TestCase):
     # ========== Export Tests ==========
     
     def test_export_subset(self):
-        """Test export_subset functionality"""
+        """Test export_subset functionality (new exact-match API)"""
         db = MaudeDatabase(self.test_db, verbose=False)
         db.add_years(2020, tables=['master', 'device'], download=False, data_dir=self.test_data_dir, interactive=False)
-        
+
         output_file = os.path.join(self.test_dir, 'export.csv')
-        db.export_subset(output_file, device_name='Thrombectomy')
-        
+        db.export_subset(output_file, generic_name='Thrombectomy Device')
+
         self.assertTrue(os.path.exists(output_file))
 
         df = pd.read_csv(output_file)
         self.assertEqual(len(df), 3)  # 3 Thrombectomy devices
-        
+
         db.close()
     
     # ========== Info Tests ==========
@@ -561,12 +594,14 @@ class TestMaudeDatabase(unittest.TestCase):
         self.assertEqual(columns['DATE_REPORT'], 'TIMESTAMP')
         self.assertEqual(columns['DATE_OF_EVENT'], 'TIMESTAMP')
 
-        # Check device table schema
+        # Check device table schema (device table should NOT have DATE_RECEIVED - only master table has it)
         cursor = db.conn.execute("PRAGMA table_info(device)")
         columns = {row[1]: row[2] for row in cursor.fetchall()}
 
-        self.assertEqual(columns['DATE_RECEIVED'], 'TIMESTAMP')
+        # Device table only has EXPIRATION_DATE_OF_DEVICE date column
         self.assertEqual(columns['EXPIRATION_DATE_OF_DEVICE'], 'TIMESTAMP')
+        # Verify DATE_RECEIVED is NOT in device table (prevents duplicate columns)
+        self.assertNotIn('DATE_RECEIVED', columns)
 
         db.close()
 
@@ -769,6 +804,195 @@ class TestMaudeDatabase(unittest.TestCase):
         # Should have exact year in filename (no fallback)
         self.assertEqual(filename, 'device2020.zip')
         self.assertIn('device2020.zip', url)
+
+        db.close()
+
+    # ========== Force Download Tests ==========
+
+    @patch('requests.get')
+    def test_download_uses_disk_cache_by_default(self, mock_get):
+        """Test that _download_file uses cached zip file by default (force_download=False)"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # Create a fake zip file on disk
+        data_dir = tempfile.mkdtemp()
+        zip_path = f"{data_dir}/device2020.zip"
+
+        # Create a minimal valid zip file
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr('device2020.txt', 'fake data')
+
+        try:
+            # Call _download_file with default force_download=False
+            result = db._download_file(2020, 'device', data_dir=data_dir, force_download=False)
+
+            # Should return True (success)
+            self.assertTrue(result)
+
+            # Should NOT have called requests.get (used disk cache)
+            mock_get.assert_not_called()
+
+        finally:
+            shutil.rmtree(data_dir)
+            db.close()
+
+    @patch('requests.get')
+    def test_force_download_bypasses_disk_cache(self, mock_get):
+        """Test that force_download=True bypasses disk cache and re-downloads"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # Create a fake OLD zip file on disk
+        data_dir = tempfile.mkdtemp()
+        zip_path = f"{data_dir}/device2020.zip"
+
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            zf.writestr('device2020.txt', 'old data')
+
+        # Mock requests.get to return a new zip file
+        mock_response = Mock()
+        mock_response.content = self._create_minimal_zip_content('device2020.txt', 'new data')
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        try:
+            # Call _download_file with force_download=True
+            result = db._download_file(2020, 'device', data_dir=data_dir, force_download=True)
+
+            # Should return True (success)
+            self.assertTrue(result)
+
+            # Should have called requests.get (bypassed disk cache)
+            mock_get.assert_called_once()
+
+            # Verify it downloaded the correct URL
+            call_args = mock_get.call_args[0]
+            self.assertIn('device2020.zip', call_args[0])
+
+        finally:
+            shutil.rmtree(data_dir)
+            db.close()
+
+    def _create_minimal_zip_content(self, filename, content):
+        """Helper to create minimal zip file content in memory"""
+        import io
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w') as zf:
+            zf.writestr(filename, content)
+        return zip_buffer.getvalue()
+
+    @patch('requests.get')
+    def test_force_download_bypasses_session_cache(self, mock_get):
+        """Test that force_download=True bypasses session cache too"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        data_dir = tempfile.mkdtemp()
+
+        # Mock requests.get to return valid zip
+        mock_response = Mock()
+        mock_response.content = self._create_minimal_zip_content('device2020.txt', 'data')
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        try:
+            # First call with force_download=True
+            result1 = db._download_file(2020, 'device', data_dir=data_dir, force_download=True)
+            self.assertTrue(result1)
+
+            # Second call with force_download=True (same session)
+            result2 = db._download_file(2020, 'device', data_dir=data_dir, force_download=True)
+            self.assertTrue(result2)
+
+            # Should have called requests.get TWICE (bypassed session cache)
+            self.assertEqual(mock_get.call_count, 2)
+
+        finally:
+            shutil.rmtree(data_dir)
+            db.close()
+
+    @patch.object(MaudeDatabase, '_download_file')
+    def test_add_years_force_download_parameter(self, mock_download):
+        """Test that add_years passes force_download to _download_file"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # Mock _download_file to return True (success)
+        mock_download.return_value = True
+
+        # Create test data directory with files so processing can happen
+        data_dir = tempfile.mkdtemp()
+
+        # Create minimal test files
+        with open(f"{data_dir}/mdrfoithru2023.txt", 'w', encoding='latin-1') as f:
+            f.write('MDR_REPORT_KEY|DATE_RECEIVED|EVENT_TYPE|EVENT_KEY\n')
+            f.write('12345|01/15/2020|IN|EVT001\n')
+
+        with open(f"{data_dir}/device2020.txt", 'w', encoding='latin-1') as f:
+            f.write('MDR_REPORT_KEY|BRAND_NAME|GENERIC_NAME|DEVICE_REPORT_PRODUCT_CODE\n')
+            f.write('12345|TestDevice|Generic Name|ABC\n')
+
+        try:
+            # Call add_years with force_download=True
+            db.add_years(2020, tables=['device'], download=True,
+                        force_download=True, data_dir=data_dir, interactive=False)
+
+            # Verify _download_file was called with force_download=True
+            mock_download.assert_called()
+
+            # Check that at least one call had force_download=True
+            calls = mock_download.call_args_list
+            found_force_download = False
+            for call in calls:
+                if 'force_download' in call[1] and call[1]['force_download'] == True:
+                    found_force_download = True
+                    break
+
+            self.assertTrue(found_force_download,
+                          "Expected _download_file to be called with force_download=True")
+
+        finally:
+            shutil.rmtree(data_dir)
+            db.close()
+
+    def test_update_force_download_parameter(self):
+        """Test that update passes force_download to add_years"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # Add some initial data so update has something to work with
+        with open(f"{self.test_data_dir}/mdrfoithru2023.txt", 'w', encoding='latin-1') as f:
+            f.write('MDR_REPORT_KEY|DATE_RECEIVED|EVENT_TYPE|EVENT_KEY\n')
+            f.write('12345|01/15/2020|IN|EVT001\n')
+
+        db.add_years(2020, tables=['master'], download=False,
+                    data_dir=self.test_data_dir, interactive=False)
+
+        # Now patch add_years for the update call
+        with patch.object(db, 'add_years') as mock_add_years:
+            # Call update with force_download=True
+            db.update(add_new_years=False, download=True, force_download=True)
+
+            # Verify add_years was called with force_download=True
+            mock_add_years.assert_called_once()
+            call_kwargs = mock_add_years.call_args[1]
+            self.assertTrue(call_kwargs.get('force_download', False),
+                           "Expected add_years to be called with force_download=True")
+
+        db.close()
+
+    @patch('requests.get')
+    def test_force_download_no_effect_when_download_false(self, mock_get):
+        """Test that force_download has no effect when download=False"""
+        db = MaudeDatabase(self.test_db, verbose=False)
+
+        # Create test file
+        with open(f"{self.test_data_dir}/device2020.txt", 'w', encoding='latin-1') as f:
+            f.write('MDR_REPORT_KEY|BRAND_NAME|GENERIC_NAME|DEVICE_REPORT_PRODUCT_CODE\n')
+            f.write('12345|TestDevice|Generic Name|ABC\n')
+
+        # Call add_years with download=False but force_download=True
+        db.add_years(2020, tables=['device'], download=False,
+                    force_download=True, data_dir=self.test_data_dir, interactive=False)
+
+        # Should NOT have called requests.get (download=False)
+        mock_get.assert_not_called()
 
         db.close()
 
