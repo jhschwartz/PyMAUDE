@@ -10,8 +10,16 @@ Complete technical reference for the `PyMAUDE` library.
   - [Querying](#querying)
   - [Device Search (Boolean)](#device-search-boolean)
   - [Helper Query Methods](#helper-query-methods)
+  - [Analysis Helper Methods](#analysis-helper-methods)
   - [Export & Utilities](#export--utilities)
   - [Internal Methods](#internal-methods-advanced)
+- [Search Refinement Helper Functions](#search-refinement-helper-functions)
+- [DeviceSearchStrategy Class](#devicesearchstrategy-class)
+- [AdjudicationLog Class](#adjudicationlog-class)
+- [Project Generator](#project-generator)
+- [Data Types](#data-types)
+- [Constants](#constants)
+- [Common Pitfalls](#common-pitfalls)
 
 ---
 
@@ -418,9 +426,6 @@ results = db.query_device(
 ```
 
 **Related**: `query()`, `search_by_device_names()`, `get_trends_by_year()`, `export_subset()`
-
-**Author**: Jacob Schwartz <jaschwa@umich.edu>
-**Copyright**: 2026, GNU GPL v3
 
 ---
 
@@ -855,9 +860,6 @@ plt.show()
 ```
 
 **Related**: `search_by_device_names()`, `query_device()`, `summarize_by_brand()`
-
-**Author**: Jacob Schwartz <jaschwa@umich.edu>
-**Copyright**: 2026, GNU GPL v3
 
 ---
 
@@ -1449,9 +1451,6 @@ summary = db.summarize_by_brand(results, group_column='standard_brand')
 
 **Related**: `search_by_device_names()`, `standardize_brand_names()`, `event_type_comparison()`
 
-**Author**: Jacob Schwartz <jaschwa@umich.edu>
-**Copyright**: 2026, GNU GPL v3
-
 ---
 
 #### Brand Name Standardization
@@ -1724,9 +1723,6 @@ comparison = db.event_type_comparison(results, group_var='standard_brand')
 
 **Related**: `chi_square_test()`, `event_type_breakdown_for()`, `search_by_device_names()`
 
-**Author**: Jacob Schwartz <jaschwa@umich.edu>
-**Copyright**: 2026, GNU GPL v3
-
 ---
 
 #### Visualization Methods
@@ -1845,220 +1841,6 @@ for name, paths in figures.items():
 - Both PNG and PDF formats recommended
 
 **Related**: `plot_temporal_trends()`, `plot_problem_distribution()`
-
----
-
-### Search Refinement & Group Management
-
-These methods help refine search terms and manage device group assignments.
-
----
-
-#### `exclude_results(main_df, exclude_df, key='MDR_REPORT_KEY')`
-
-Return rows from main_df whose key values don't appear in exclude_df.
-
-Useful for search term refinement: find what matches a broad search but not a narrow search, to identify potentially missed results.
-
-**Parameters**:
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `main_df` | DataFrame | required | DataFrame to filter |
-| `exclude_df` | DataFrame | required | DataFrame containing rows to exclude |
-| `key` | str | `'MDR_REPORT_KEY'` | Column to match on |
-
-**Returns**: DataFrame with excluded rows removed
-
-**Raises**:
-- `ValueError`: If key column is missing from either DataFrame
-
-**Examples**:
-
-```python
-from pymaude import analysis_helpers
-
-# Find what's in broad search but not narrow search
-broad = db.search_by_device_names('omni')
-narrow = db.search_by_device_names([['angiojet', 'omni'], ['boston sci', 'omni']])
-missed = analysis_helpers.exclude_results(broad, narrow)
-
-# Review what's being missed
-print(f"Missed {len(missed)} reports")
-
-# Use EVENT_KEY instead of MDR_REPORT_KEY
-missed_events = analysis_helpers.exclude_results(broad, narrow, key='EVENT_KEY')
-```
-
-**Notes**:
-- Use `MDR_REPORT_KEY` to check individual report overlap
-- Use `EVENT_KEY` to check event-level overlap (accounts for duplicate reports)
-
-**Related**: `filter_by_text()`, `summarize_devices()`
-
----
-
-#### `filter_by_text(df, exclude_terms=None, include_terms=None, column='DEVICE_NAME_CONCAT')`
-
-Filter results by text matching on a specified column.
-
-Useful for removing obvious noise (e.g., insulin pumps) from search results or keeping only rows matching certain terms.
-
-**Parameters**:
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `df` | DataFrame | required | DataFrame to filter |
-| `exclude_terms` | list | `None` | Terms to exclude - removes rows matching ANY |
-| `include_terms` | list | `None` | Terms to include - keeps only rows matching ANY |
-| `column` | str | `'DEVICE_NAME_CONCAT'` | Column to search |
-
-**Returns**: DataFrame with filtered rows
-
-**Raises**:
-- `ValueError`: If column is missing from DataFrame
-
-**Examples**:
-
-```python
-from pymaude import analysis_helpers
-
-# Remove insulin-related results from search
-missed = analysis_helpers.exclude_results(broad_search, narrow_search)
-cleaned = analysis_helpers.filter_by_text(missed, exclude_terms=['insulin', 'pump'])
-
-# Keep only catheter-related results
-catheters = analysis_helpers.filter_by_text(results, include_terms=['catheter', 'cath'])
-
-# Combine both: keep catheters, exclude insulin
-filtered = analysis_helpers.filter_by_text(
-    results,
-    exclude_terms=['insulin'],
-    include_terms=['catheter']
-)
-
-# Filter on a different column
-filtered = analysis_helpers.filter_by_text(
-    results,
-    exclude_terms=['medtronic'],
-    column='MANUFACTURER_D_NAME'
-)
-```
-
-**Notes**:
-- Case-insensitive matching
-- Terms are matched as substrings (partial matches work)
-- When both exclude and include are provided, exclude is applied first
-
-**Related**: `exclude_results()`, `summarize_devices()`
-
----
-
-#### `summarize_devices(df, columns=None)`
-
-Quick view of unique devices in results for search refinement.
-
-Shows distinct combinations of device identifiers to help review what devices are captured by a search.
-
-**Parameters**:
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `df` | DataFrame | required | DataFrame with device information |
-| `columns` | list | `['BRAND_NAME', 'GENERIC_NAME', 'MANUFACTURER_D_NAME']` | Columns to include |
-
-**Returns**: DataFrame with unique device combinations, sorted by first column
-
-**Raises**:
-- `ValueError`: If none of the specified columns exist in DataFrame
-
-**Examples**:
-
-```python
-from pymaude import analysis_helpers
-
-# See what devices are being missed by narrow search
-missed = analysis_helpers.exclude_results(broad_search, narrow_search)
-analysis_helpers.summarize_devices(missed)
-
-# Summarize with only brand names
-analysis_helpers.summarize_devices(results, columns=['BRAND_NAME'])
-
-# Full workflow: refine search terms
-broad = db.search_by_device_names('omni')
-narrow = db.search_by_device_names([['angiojet', 'omni'], ['boston sci', 'omni']])
-
-missed = analysis_helpers.exclude_results(broad, narrow)
-missed = analysis_helpers.filter_by_text(missed, exclude_terms=['insulin', 'pump'])
-analysis_helpers.summarize_devices(missed)  # Review what's left
-```
-
-**Notes**:
-- Only includes columns that exist in the DataFrame
-- Results are sorted alphabetically by first column
-- Useful for iterating on search criteria
-
-**Related**: `exclude_results()`, `filter_by_text()`
-
----
-
-#### `remap_device_groups(results_df, new_group_mapping, group_var='search_group', new_group_column=None, allow_unspecified=False)`
-
-Remap group assignments within a DataFrame of device events.
-
-Useful for combining fine-grained search groups into broader categories or renaming groups for analysis.
-
-**Parameters**:
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `results_df` | DataFrame | required | DataFrame with group column |
-| `new_group_mapping` | dict | required | Mapping of new group names to old group names |
-| `group_var` | str | `'search_group'` | Column containing current group assignments |
-| `new_group_column` | str | `None` | New column for remapped groups (overwrites if None) |
-| `allow_unspecified` | bool | `False` | If True, unmapped groups pass through unchanged |
-
-**Returns**: DataFrame with remapped group assignments
-
-**Raises**:
-- `ValueError`: If `group_var` column is missing
-- `ValueError`: If an old group is assigned to multiple new groups
-- `ValueError`: If `allow_unspecified=False` and groups are unmapped
-
-**Examples**:
-
-```python
-from pymaude import analysis_helpers
-
-# Combine device models into broader categories
-results = db.search_by_device_names({
-    'cleaner_15': [['argon', 'cleaner', '15']],
-    'cleaner_xt': [['argon', 'cleaner', 'xt']],
-    'cleaner_other': [['argon', 'cleaner']],
-    'angiojet': ['angiojet']
-})
-
-# Remap: combine all cleaner models, keep angiojet separate
-remapped = analysis_helpers.remap_device_groups(results, {
-    'Argon Cleaner': ['cleaner_15', 'cleaner_xt', 'cleaner_other'],
-    'AngioJet': 'angiojet'
-})
-
-# Remap to new column (preserve original groups)
-remapped = analysis_helpers.remap_device_groups(
-    results,
-    {'Mechanical': ['cleaner_15', 'angiojet']},
-    new_group_column='device_category',
-    allow_unspecified=True
-)
-```
-
-**Notes**:
-- Dict values can be a single string or list of strings
-- Order of `new_group_mapping` determines final group order
-- Use `allow_unspecified=True` when only remapping some groups
-
-**Related**: `search_by_device_names()`, `summarize_by_group()`
 
 ---
 
@@ -2253,95 +2035,236 @@ print(f"Latest available: {latest}")
 
 ---
 
-## Data Types
+## Search Refinement Helper Functions
 
-### pandas.DataFrame
+Standalone utility functions for refining device search criteria during exploratory analysis. These functions help you iterate on search terms before formalizing them into a DeviceSearchStrategy.
 
-All query methods return pandas DataFrames. Common operations:
+**Module**: `pymaude.analysis_helpers`
 
-```python
-# Get first rows
-df.head(10)
+**Import**: `from pymaude import analysis_helpers`
 
-# Get specific columns
-df[['GENERIC_NAME', 'event_type']]
-
-# Filter rows
-df[df['event_type'] == 'Death']
-
-# Save to CSV
-df.to_csv('output.csv', index=False)
-
-# Count rows
-len(df)
-
-# Get column names
-df.columns.tolist()
-```
+**Typical Workflow**:
+1. Run broad search with `db.search_by_device_names()`
+2. Run refined search with more specific criteria
+3. Use `exclude_results()` to find what broad search captured that narrow search missed
+4. Use `filter_by_text()` to remove known false positives
+5. Use `summarize_devices()` to review what remains
+6. Iterate on search criteria until satisfied
+7. Formalize into `DeviceSearchStrategy` for reproducibility
 
 ---
 
-## Constants
+### `exclude_results(main_df, exclude_df, key='MDR_REPORT_KEY')`
 
-### Table File Mappings
+Return rows from main_df whose key values don't appear in exclude_df.
+
+Useful for search term refinement: find what matches a broad search but not a narrow search, to identify potentially missed results.
+
+**Parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `main_df` | DataFrame | required | DataFrame to filter |
+| `exclude_df` | DataFrame | required | DataFrame containing rows to exclude |
+| `key` | str | `'MDR_REPORT_KEY'` | Column to match on |
+
+**Returns**: DataFrame with excluded rows removed
+
+**Raises**:
+- `ValueError`: If key column is missing from either DataFrame
+
+**Examples**:
 
 ```python
-MaudeDatabase.table_files = {
-    'master': 'mdrfoi',
-    'device': 'foidev',
-    'patient': 'patient',
-    'text': 'foitext',
-    'problems': 'foidevproblem'
-}
+from pymaude import analysis_helpers
+
+# Find what's in broad search but not narrow search
+broad = db.search_by_device_names('omni')
+narrow = db.search_by_device_names([['angiojet', 'omni'], ['boston sci', 'omni']])
+missed = analysis_helpers.exclude_results(broad, narrow)
+
+# Review what's being missed
+print(f"Missed {len(missed)} reports")
+
+# Use EVENT_KEY instead of MDR_REPORT_KEY
+missed_events = analysis_helpers.exclude_results(broad, narrow, key='EVENT_KEY')
 ```
 
-### Base URL
+**Notes**:
+- Use `MDR_REPORT_KEY` to check individual report overlap
+- Use `EVENT_KEY` to check event-level overlap (accounts for duplicate reports)
 
-```python
-MaudeDatabase.base_url = "https://www.accessdata.fda.gov/MAUDE/ftparea"
-```
+**Related**: `filter_by_text()`, `summarize_devices()`
 
 ---
 
-## Common Pitfalls
+### `filter_by_text(df, exclude_terms=None, include_terms=None, column='DEVICE_NAME_CONCAT')`
 
-### Column Name Case
+Filter results by text matching on a specified column.
 
-**Problem**: `sqlite3.OperationalError: no such column: generic_name`
+Useful for removing obvious noise (e.g., insulin pumps) from search results or keeping only rows matching certain terms.
 
-**Solution**: Use uppercase for device/text tables:
+**Parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `df` | DataFrame | required | DataFrame to filter |
+| `exclude_terms` | list | `None` | Terms to exclude - removes rows matching ANY |
+| `include_terms` | list | `None` | Terms to include - keeps only rows matching ANY |
+| `column` | str | `'DEVICE_NAME_CONCAT'` | Column to search |
+
+**Returns**: DataFrame with filtered rows
+
+**Raises**:
+- `ValueError`: If column is missing from DataFrame
+
+**Examples**:
+
 ```python
-# Correct
-db.query("SELECT GENERIC_NAME FROM device")
+from pymaude import analysis_helpers
 
-# Incorrect
-db.query("SELECT generic_name FROM device")
+# Remove insulin-related results from search
+missed = analysis_helpers.exclude_results(broad_search, narrow_search)
+cleaned = analysis_helpers.filter_by_text(missed, exclude_terms=['insulin', 'pump'])
+
+# Keep only catheter-related results
+catheters = analysis_helpers.filter_by_text(results, include_terms=['catheter', 'cath'])
+
+# Combine both: keep catheters, exclude insulin
+filtered = analysis_helpers.filter_by_text(
+    results,
+    exclude_terms=['insulin'],
+    include_terms=['catheter']
+)
+
+# Filter on a different column
+filtered = analysis_helpers.filter_by_text(
+    results,
+    exclude_terms=['medtronic'],
+    column='MANUFACTURER_D_NAME'
+)
 ```
 
-### Missing Tables
+**Notes**:
+- Case-insensitive matching
+- Terms are matched as substrings (partial matches work)
+- When both exclude and include are provided, exclude is applied first
 
-**Problem**: Querying tables that weren't downloaded
+**Related**: `exclude_results()`, `summarize_devices()`
 
-**Solution**: Ensure tables are loaded:
+---
+
+### `summarize_devices(df, columns=None)`
+
+Quick view of unique devices in results for search refinement.
+
+Shows distinct combinations of device identifiers to help review what devices are captured by a search.
+
+**Parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `df` | DataFrame | required | DataFrame with device information |
+| `columns` | list | `['BRAND_NAME', 'GENERIC_NAME', 'MANUFACTURER_D_NAME']` | Columns to include |
+
+**Returns**: DataFrame with unique device combinations, sorted by first column
+
+**Raises**:
+- `ValueError`: If none of the specified columns exist in DataFrame
+
+**Examples**:
+
 ```python
-db.add_years(2020, tables=['device', 'text'], download=True)
-# Now both device and text tables available
+from pymaude import analysis_helpers
+
+# See what devices are being missed by narrow search
+missed = analysis_helpers.exclude_results(broad_search, narrow_search)
+analysis_helpers.summarize_devices(missed)
+
+# Summarize with only brand names
+analysis_helpers.summarize_devices(results, columns=['BRAND_NAME'])
+
+# Full workflow: refine search terms
+broad = db.search_by_device_names('omni')
+narrow = db.search_by_device_names([['angiojet', 'omni'], ['boston sci', 'omni']])
+
+missed = analysis_helpers.exclude_results(broad, narrow)
+missed = analysis_helpers.filter_by_text(missed, exclude_terms=['insulin', 'pump'])
+analysis_helpers.summarize_devices(missed)  # Review what's left
 ```
 
-### Memory Issues
+**Notes**:
+- Only includes columns that exist in the DataFrame
+- Results are sorted alphabetically by first column
+- Useful for iterating on search criteria
 
-**Problem**: Out of memory when processing large files
+**Related**: `exclude_results()`, `filter_by_text()`
 
-**Solution**: Reduce chunk size:
+---
+
+### `remap_device_groups(results_df, new_group_mapping, group_var='search_group', new_group_column=None, allow_unspecified=False)`
+
+Remap group assignments within a DataFrame of device events.
+
+Useful for combining fine-grained search groups into broader categories or renaming groups for analysis.
+
+**Parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `results_df` | DataFrame | required | DataFrame with group column |
+| `new_group_mapping` | dict | required | Mapping of new group names to old group names |
+| `group_var` | str | `'search_group'` | Column containing current group assignments |
+| `new_group_column` | str | `None` | New column for remapped groups (overwrites if None) |
+| `allow_unspecified` | bool | `False` | If True, unmapped groups pass through unchanged |
+
+**Returns**: DataFrame with remapped group assignments
+
+**Raises**:
+- `ValueError`: If `group_var` column is missing
+- `ValueError`: If an old group is assigned to multiple new groups
+- `ValueError`: If `allow_unspecified=False` and groups are unmapped
+
+**Examples**:
+
 ```python
-db.add_years(2020, chunk_size=10000)  # Default is 100000
+from pymaude import analysis_helpers
+
+# Combine device models into broader categories
+results = db.search_by_device_names({
+    'cleaner_15': [['argon', 'cleaner', '15']],
+    'cleaner_xt': [['argon', 'cleaner', 'xt']],
+    'cleaner_other': [['argon', 'cleaner']],
+    'angiojet': ['angiojet']
+})
+
+# Remap: combine all cleaner models, keep angiojet separate
+remapped = analysis_helpers.remap_device_groups(results, {
+    'Argon Cleaner': ['cleaner_15', 'cleaner_xt', 'cleaner_other'],
+    'AngioJet': 'angiojet'
+})
+
+# Remap to new column (preserve original groups)
+remapped = analysis_helpers.remap_device_groups(
+    results,
+    {'Mechanical': ['cleaner_15', 'angiojet']},
+    new_group_column='device_category',
+    allow_unspecified=True
+)
 ```
+
+**Notes**:
+- Dict values can be a single string or list of strings
+- Order of `new_group_mapping` determines final group order
+- Use `allow_unspecified=True` when only remapping some groups
+
+**Related**: `search_by_device_names()`, `summarize_by_group()`
 
 ---
 
 ## DeviceSearchStrategy Class
 
-**New in v1.0.0**: Reproducible search strategy class for systematic device review following PRISMA 2020 and RECORD guidelines.
+Reproducible search strategy class for systematic device review following PRISMA 2020 and RECORD guidelines.
 
 ### Overview
 
@@ -2446,19 +2369,280 @@ Generate counts for PRISMA flow diagram.
 
 ## AdjudicationLog Class
 
-**New in v1.0.0**: CSV-based tracking of manual decisions.
+CSV-based tracking of manual decisions for device search adjudication workflow.
 
+### Overview
+
+The `AdjudicationLog` class provides structured tracking of manual inclusion/exclusion decisions during device search review. Decisions are stored in CSV format for transparency and version control.
+
+### Initialization
+
+#### `__init__(path)`
+
+Initialize a new adjudication log.
+
+**Parameters**:
+- `path` (str): Path to CSV file for storing adjudication records
+
+**Returns**: AdjudicationLog instance
+
+**Example**:
 ```python
 from pymaude.adjudication import AdjudicationLog
 
+# Create new log
 log = AdjudicationLog('adjudication/my_decisions.csv')
-log.add('1234567', 'include', 'Matches criteria', 'Reviewer')
-log.to_csv()
-
-# Get decision sets
-include_keys = log.get_inclusion_keys()
-exclude_keys = log.get_exclusion_keys()
 ```
+
+**Notes**:
+- Automatically loads existing decisions if file exists
+- Creates empty log if file doesn't exist
+- Parent directories created automatically on save
+
+---
+
+### Methods
+
+#### `add(mdr_key, decision, reason, reviewer, strategy_version="", device_info="")`
+
+Add an adjudication decision to the log.
+
+**Parameters**:
+- `mdr_key` (str): MDR_REPORT_KEY for the report being adjudicated
+- `decision` (str): Either "include" or "exclude"
+- `reason` (str): Explanation for the decision
+- `reviewer` (str): Name or ID of reviewer making decision
+- `strategy_version` (str, optional): Version of search strategy being used
+- `device_info` (str, optional): Device name/info for context
+
+**Returns**: None
+
+**Raises**:
+- `ValueError`: If decision is not "include" or "exclude"
+
+**Example**:
+```python
+log = AdjudicationLog('adjudication/devices.csv')
+
+# Add inclusion decision
+log.add('1234567', 'include', 'Matches device criteria', 'Jake',
+        strategy_version='v1.0', device_info='Argon Cleaner 15')
+
+# Add exclusion decision
+log.add('7654321', 'exclude', 'Ultrasonic cleaner (false positive)', 'Jake')
+
+# Save decisions
+log.to_csv()
+```
+
+**Notes**:
+- Decisions are added to memory; call `to_csv()` to persist
+- Timestamp is automatically recorded
+- All parameters are stored for PRISMA reporting
+
+---
+
+#### `to_csv()`
+
+Save all adjudication decisions to CSV file.
+
+**Parameters**: None
+
+**Returns**: None
+
+**Example**:
+```python
+log = AdjudicationLog('adjudication/devices.csv')
+log.add('1234567', 'include', 'Matches criteria', 'Reviewer A')
+log.add('7654321', 'exclude', 'False positive', 'Reviewer A')
+
+# Save to CSV
+log.to_csv()
+```
+
+**Notes**:
+- Creates parent directories if they don't exist
+- Overwrites existing file with all current decisions
+- CSV format is git-friendly and Excel-compatible
+- CSV columns: mdr_report_key, decision, reason, reviewer, date, strategy_version, device_info
+
+---
+
+#### `from_csv(path)` (classmethod)
+
+Load existing adjudication log from CSV file.
+
+**Parameters**:
+- `path` (str): Path to CSV file
+
+**Returns**: AdjudicationLog instance with loaded decisions
+
+**Raises**:
+- `FileNotFoundError`: If CSV file doesn't exist
+
+**Example**:
+```python
+from pymaude.adjudication import AdjudicationLog
+
+# Load existing log
+log = AdjudicationLog.from_csv('adjudication/devices.csv')
+
+print(f"Loaded {len(log.records)} decisions")
+
+# Add more decisions
+log.add('9999999', 'include', 'New decision', 'Reviewer B')
+log.to_csv()
+```
+
+**Notes**:
+- Automatically called by `__init__()` if file exists
+- Useful for explicitly loading logs
+- Parses ISO-format dates from CSV
+
+---
+
+#### `get_inclusion_keys()`
+
+Get set of MDR_REPORT_KEYs marked for inclusion.
+
+**Parameters**: None
+
+**Returns**: Set of report keys (as strings)
+
+**Example**:
+```python
+log = AdjudicationLog.from_csv('adjudication/devices.csv')
+
+# Get reports to include
+include_keys = log.get_inclusion_keys()
+print(f"Including {len(include_keys)} reports")
+
+# Filter query results
+results = db.query_device(device_name='catheter')
+included = results[results['MDR_REPORT_KEY'].astype(str).isin(include_keys)]
+```
+
+**Notes**:
+- Returns strings (MDR_REPORT_KEYs are stored as strings in log)
+- Use with DeviceSearchStrategy.apply() for manual overrides
+- Empty set if no inclusions
+
+**Related**: `get_exclusion_keys()`
+
+---
+
+#### `get_exclusion_keys()`
+
+Get set of MDR_REPORT_KEYs marked for exclusion.
+
+**Parameters**: None
+
+**Returns**: Set of report keys (as strings)
+
+**Example**:
+```python
+log = AdjudicationLog.from_csv('adjudication/devices.csv')
+
+# Get reports to exclude
+exclude_keys = log.get_exclusion_keys()
+print(f"Excluding {len(exclude_keys)} reports")
+
+# Filter query results
+results = db.query_device(device_name='catheter')
+final = results[~results['MDR_REPORT_KEY'].astype(str).isin(exclude_keys)]
+```
+
+**Notes**:
+- Returns strings (MDR_REPORT_KEYs are stored as strings in log)
+- Use with DeviceSearchStrategy.apply() for manual overrides
+- Empty set if no exclusions
+
+**Related**: `get_inclusion_keys()`
+
+---
+
+#### `to_dataframe()`
+
+Convert adjudication log to pandas DataFrame for analysis.
+
+**Parameters**: None
+
+**Returns**: pandas.DataFrame with columns:
+- `mdr_report_key` (str): Report identifier
+- `decision` (str): "include" or "exclude"
+- `reason` (str): Decision rationale
+- `reviewer` (str): Reviewer name/ID
+- `date` (datetime): Decision timestamp
+- `strategy_version` (str): Search strategy version
+- `device_info` (str): Device context
+
+**Example**:
+```python
+log = AdjudicationLog.from_csv('adjudication/devices.csv')
+
+# Convert to DataFrame for analysis
+df = log.to_dataframe()
+
+# Analyze decision patterns
+print(df['decision'].value_counts())
+print(df.groupby('reviewer')['decision'].value_counts())
+
+# Most common exclusion reasons
+exclusions = df[df['decision'] == 'exclude']
+print(exclusions['reason'].value_counts().head(10))
+
+# Export for reporting
+df.to_csv('adjudication_summary.csv', index=False)
+```
+
+**Notes**:
+- Returns empty DataFrame with correct columns if no decisions
+- Useful for inter-rater reliability analysis
+- Date column is datetime type (not string)
+
+**Related**: `get_statistics()`
+
+---
+
+#### `get_statistics()`
+
+Get summary statistics for PRISMA reporting.
+
+**Parameters**: None
+
+**Returns**: dict with keys:
+- `total_decisions` (int): Total number of decisions
+- `inclusions` (int): Count of inclusion decisions
+- `exclusions` (int): Count of exclusion decisions
+- `reviewers` (list): Sorted list of unique reviewer names
+- `date_range` (tuple): (earliest_date, latest_date) as datetime objects
+
+**Example**:
+```python
+log = AdjudicationLog.from_csv('adjudication/devices.csv')
+
+# Get summary statistics
+stats = log.get_statistics()
+
+print(f"Total decisions: {stats['total_decisions']}")
+print(f"Inclusions: {stats['inclusions']}")
+print(f"Exclusions: {stats['exclusions']}")
+print(f"Reviewers: {', '.join(stats['reviewers'])}")
+
+first_date, last_date = stats['date_range']
+print(f"Review period: {first_date.date()} to {last_date.date()}")
+
+# Use in PRISMA flow diagram
+print(f"Records screened manually: {stats['total_decisions']}")
+print(f"Records excluded after review: {stats['exclusions']}")
+```
+
+**Notes**:
+- Returns all fields as None/empty if log has no decisions
+- Useful for Methods section and PRISMA diagrams
+- Date range helps document review timeline
+
+**Related**: `to_dataframe()`, `DeviceSearchStrategy.get_prisma_counts()`
 
 ---
 
@@ -2469,4 +2653,90 @@ python scripts/create_project.py <project_name> [author] [description]
 ```
 
 Creates standardized analysis project with PRISMA compliance.
+
+---
+
+## Data Types
+
+### pandas.DataFrame
+
+All query methods return pandas DataFrames. Common operations:
+
+```python
+# Get first rows
+df.head(10)
+
+# Get specific columns
+df[['GENERIC_NAME', 'event_type']]
+
+# Filter rows
+df[df['event_type'] == 'Death']
+
+# Save to CSV
+df.to_csv('output.csv', index=False)
+
+# Count rows
+len(df)
+
+# Get column names
+df.columns.tolist()
+```
+
+---
+
+## Constants
+
+### Table File Mappings
+
+```python
+MaudeDatabase.table_files = {
+    'master': 'mdrfoi',
+    'device': 'foidev',
+    'patient': 'patient',
+    'text': 'foitext',
+    'problems': 'foidevproblem'
+}
+```
+
+### Base URL
+
+```python
+MaudeDatabase.base_url = "https://www.accessdata.fda.gov/MAUDE/ftparea"
+```
+
+---
+
+## Common Pitfalls
+
+### Column Name Case
+
+**Problem**: `sqlite3.OperationalError: no such column: generic_name`
+
+**Solution**: Use uppercase for device/text tables:
+```python
+# Correct
+db.query("SELECT GENERIC_NAME FROM device")
+
+# Incorrect
+db.query("SELECT generic_name FROM device")
+```
+
+### Missing Tables
+
+**Problem**: Querying tables that weren't downloaded
+
+**Solution**: Ensure tables are loaded:
+```python
+db.add_years(2020, tables=['device', 'text'], download=True)
+# Now both device and text tables available
+```
+
+### Memory Issues
+
+**Problem**: Out of memory when processing large files
+
+**Solution**: Reduce chunk size:
+```python
+db.add_years(2020, chunk_size=10000)  # Default is 100000
+```
 
