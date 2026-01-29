@@ -2339,3 +2339,134 @@ db.add_years(2020, chunk_size=10000)  # Default is 100000
 
 ---
 
+## DeviceSearchStrategy Class
+
+**New in v1.0.0**: Reproducible search strategy class for systematic device review following PRISMA 2020 and RECORD guidelines.
+
+### Overview
+
+The `DeviceSearchStrategy` class encapsulates device search criteria, enabling:
+- Version-controlled search strategies (YAML format)
+- Systematic broad → narrow → adjudication workflow
+- Manual inclusion/exclusion tracking
+- PRISMA flow diagram count generation
+
+### Initialization
+
+```python
+from pymaude import DeviceSearchStrategy
+
+strategy = DeviceSearchStrategy(
+    name="my_device",
+    description="Search strategy for my device category",
+    version="1.0.0",
+    author="Your Name",
+    broad_criteria=[['term1', 'term2'], 'term3'],
+    narrow_criteria=[['term1', 'term2', 'specific']],
+    exclusion_patterns=['false_positive_pattern'],
+    search_rationale="Why these terms were chosen..."
+)
+```
+
+**Parameters:**
+- `name` (str): Strategy identifier (e.g., "rotational_thrombectomy")
+- `description` (str): Human-readable description
+- `version` (str, default="1.0.0"): Semantic version
+- `author` (str, optional): Strategy author name
+- `created_at` (datetime, auto): Creation timestamp
+- `updated_at` (datetime, auto): Last modification timestamp
+- `broad_criteria` (list): Broad search criteria (PyMAUDE list format)
+- `narrow_criteria` (list): Refined search criteria
+- `known_variants` (list, optional): Device name variants for documentation
+- `exclusion_patterns` (list, optional): Known false positive patterns
+- `inclusion_overrides` (list, optional): MDR_REPORT_KEYs to force-include
+- `exclusion_overrides` (list, optional): MDR_REPORT_KEYs to force-exclude
+- `search_rationale` (str, optional): Documentation of search approach
+
+**Boolean Search Format:**
+- OR: `['term1', 'term2']`
+- AND: `[['term1', 'term2']]`
+- Complex: `[['argon', 'cleaner'], 'angiojet']` = `(argon AND cleaner) OR angiojet`
+
+---
+
+### `apply(db, name_column="DEVICE_NAME_CONCAT", start_date=None, end_date=None)`
+
+Apply search strategy to a MaudeDatabase following PRISMA workflow.
+
+**Parameters:**
+- `db` (MaudeDatabase): Database instance to search
+- `name_column` (str, default="DEVICE_NAME_CONCAT"): Column for substring matching
+- `start_date` (str, optional): Start date (YYYY-MM-DD)
+- `end_date` (str, optional): End date (YYYY-MM-DD)
+
+**Returns:** Tuple of (included, excluded, needs_review) DataFrames
+
+**Example:**
+```python
+from pymaude import MaudeDatabase, DeviceSearchStrategy
+
+# Load strategy
+strategy = DeviceSearchStrategy.from_yaml('strategies/my_device.yaml')
+
+# Apply to database
+db = MaudeDatabase('maude.db')
+included, excluded, needs_review = strategy.apply(db, start_date='2020-01-01')
+
+print(f"Included: {len(included)} reports")
+print(f"Needs review: {len(needs_review)} reports")
+```
+
+---
+
+### `to_yaml(path=None)` / `from_yaml(path)`
+
+Export/import strategy to/from YAML format.
+
+**Example:**
+```python
+# Save
+strategy.to_yaml('strategies/my_device_v1.yaml')
+
+# Load
+strategy = DeviceSearchStrategy.from_yaml('strategies/my_device_v1.yaml')
+```
+
+---
+
+### `add_manual_decision(mdr_key, decision, reason="")` 
+
+Record manual inclusion/exclusion decision.
+
+### `get_prisma_counts(included_df, excluded_df, needs_review_df)`
+
+Generate counts for PRISMA flow diagram.
+
+---
+
+## AdjudicationLog Class
+
+**New in v1.0.0**: CSV-based tracking of manual decisions.
+
+```python
+from pymaude.adjudication import AdjudicationLog
+
+log = AdjudicationLog('adjudication/my_decisions.csv')
+log.add('1234567', 'include', 'Matches criteria', 'Reviewer')
+log.to_csv()
+
+# Get decision sets
+include_keys = log.get_inclusion_keys()
+exclude_keys = log.get_exclusion_keys()
+```
+
+---
+
+## Project Generator
+
+```bash
+python scripts/create_project.py <project_name> [author] [description]
+```
+
+Creates standardized analysis project with PRISMA compliance.
+

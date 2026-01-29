@@ -45,7 +45,10 @@ notebooks/**/*.txt
 notebooks/**/*.png
 notebooks/**/*.csv
 
-# Analysis 
+# Analysis
 analysis/
 
 .claude/
+
+# Study projects (each has its own git repo)
+studies/

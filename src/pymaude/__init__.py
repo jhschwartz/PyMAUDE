@@ -36,12 +36,16 @@ Usage:
 """
 
 from .database import MaudeDatabase
+from .search_strategy import DeviceSearchStrategy
+from .adjudication import AdjudicationLog
 from .metadata import TABLE_METADATA, TABLE_FILES, FDA_BASE_URL
 
 __version__ = '1.0.0'
 __author__ = 'Jacob Schwartz <jaschwa@umich.edu>'
 __all__ = [
     'MaudeDatabase',
+    'DeviceSearchStrategy',
+    'AdjudicationLog',
     'TABLE_METADATA',
     'TABLE_FILES',
     'FDA_BASE_URL',

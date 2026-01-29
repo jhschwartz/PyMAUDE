@@ -477,6 +477,62 @@ You can use both Python and SQLite tools on the same database:
 
 The database file (`.db`) works with both approaches interchangeably.
 
+## Reproducible Search Workflows (NEW)
+
+**New in v1.0.0**: PyMAUDE now supports systematic device search following PRISMA 2020 guidelines.
+
+### Quick Start
+
+1. **Create a new analysis project:**
+```bash
+python scripts/create_project.py my_device "Your Name"
+cd studies/pymaude_my_device
+```
+
+2. **Define your search strategy:**
+
+Edit `search_strategies/my_device_v1.yaml`:
+```yaml
+name: my_device
+description: Device search strategy
+broad_criteria: [['manufacturer', 'device'], 'brand_name']
+narrow_criteria: [['manufacturer', 'device', 'specific_term']]
+exclusion_patterns: ['false_positive']
+```
+
+3. **Apply search strategy:**
+```python
+from pymaude import MaudeDatabase, DeviceSearchStrategy
+
+db = MaudeDatabase('../../maude.db')
+strategy = DeviceSearchStrategy.from_yaml('search_strategies/my_device_v1.yaml')
+
+included, excluded, needs_review = strategy.apply(db)
+print(f"Included: {len(included)}")
+print(f"Needs review: {len(needs_review)}")
+```
+
+4. **Track manual decisions:**
+```python
+from pymaude.adjudication import AdjudicationLog
+
+log = AdjudicationLog('adjudication/my_device_decisions.csv')
+log.add('1234567', 'include', 'Matches criteria', 'Your Name')
+log.to_csv()
+```
+
+5. **Generate PRISMA counts:**
+```python
+counts = strategy.get_prisma_counts(included, excluded, needs_review)
+print(counts)
+```
+
+For detailed systematic review workflow, see:
+- [Systematic Review Guide](systematic_review_guide.md) (comprehensive guide)
+- `examples/notebooks/systematic_review_example.ipynb` (worked example)
+
+---
+
 ## Next Steps
 
 Now that you can download data and run basic queries, you're ready for:

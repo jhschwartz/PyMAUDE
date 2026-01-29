@@ -1,0 +1,60 @@
+name: rotational_thrombectomy
+description: Search strategy for rotational thrombectomy catheters (e.g., Cleaner 15)
+version: "1.0.0"
+author: Jake
+created_at: "2026-01-29T00:00:00"
+updated_at: "2026-01-29T00:00:00"
+
+search_rationale: |
+  Rotational thrombectomy devices are identified by several manufacturers.
+  The primary challenge is that "argon" and "cleaner" appear in unrelated
+  devices (ultrasonic cleaners, dental devices). We use specific combinations
+  to minimize false positives while capturing naming variants.
+
+  This search strategy follows PRISMA 2020 guidelines for systematic reviews
+  and RECORD guidelines for code list development.
+
+# Broad search: Cast wide net to capture variants
+# Format: List of lists (OR of AND groups)
+# [['term1', 'term2'], ['term3']] = (term1 AND term2) OR (term3)
+broad_criteria:
+  - ['argon', 'cleaner']
+  - ['cleaner', '15']
+  - ['thrombectomy', 'rotational']
+
+# Narrow search: More specific criteria
+# Refines broad search to reduce false positives
+narrow_criteria:
+  - ['argon', 'cleaner', 'thromb']
+  - ['argon', 'cleaner', '15']
+  - ['rex', 'cleaner']
+  - ['rotational', 'thrombectomy', 'catheter']
+
+# Known device name variants (for documentation)
+# Future: Could enable fuzzy matching or brand standardization
+known_variants:
+  - device_name: "Argon Medical"
+    generic_name: "Cleaner 15 Rotational Thrombectomy Catheter"
+    manufacturer: "Rex Medical"
+    canonical_id: "THROMB_001"
+  - device_name: "Cleaner15"
+    generic_name: ""
+    manufacturer: "Argon Med"
+    canonical_id: "THROMB_001"
+  - device_name: "Cleaner XT"
+    generic_name: "Rotational Thrombectomy System"
+    manufacturer: "Argon Medical Devices"
+    canonical_id: "THROMB_002"
+
+# Exclusion patterns for known false positives
+# These are substring-matched (case-insensitive) to remove irrelevant reports
+exclusion_patterns:
+  - "ultrasonic"
+  - "dental"
+  - "toothbrush"
+  - "insulin pump"
+  - "hearing aid"
+
+# Manual overrides (populated during adjudication)
+inclusion_overrides: []
+exclusion_overrides: []
