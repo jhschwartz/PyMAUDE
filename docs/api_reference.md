@@ -2357,13 +2357,114 @@ strategy = DeviceSearchStrategy.from_yaml('strategies/my_device_v1.yaml')
 
 ---
 
-### `add_manual_decision(mdr_key, decision, reason="")` 
+### `add_manual_decision(mdr_key, decision, reason="")`
 
-Record manual inclusion/exclusion decision.
+Record a single manual inclusion/exclusion decision.
+
+**Parameters:**
+- `mdr_key` (str): MDR_REPORT_KEY to include or exclude
+- `decision` (str): "include" or "exclude"
+- `reason` (str, optional): Brief explanation (not stored in strategy YAML)
+
+**Note:** This method only stores the MDR key and decision type. For full audit trails with reviewers, dates, and detailed reasons, use `AdjudicationLog` instead and sync with `sync_from_adjudication()`.
+
+---
+
+### `sync_from_adjudication(log)`
+
+Sync all manual decisions from an AdjudicationLog into this strategy.
+
+**Parameters:**
+- `log` (AdjudicationLog): Adjudication log containing manual decisions
+
+**Returns:** dict with keys:
+- `inclusions_added`: Number of inclusion overrides synced
+- `exclusions_added`: Number of exclusion overrides synced
+- `total_synced`: Total decisions synced
+
+**Example:**
+```python
+from pymaude import DeviceSearchStrategy
+from pymaude.adjudication import AdjudicationLog
+
+# Record detailed decisions in adjudication log
+log = AdjudicationLog('adjudication/venous_stent.csv')
+log.add('1234567', 'include', 'Matches device criteria', 'Jake')
+log.add('7654321', 'exclude', 'Ultrasonic cleaner (false positive)', 'Jake')
+log.to_csv()
+
+# Sync decisions to strategy
+strategy = DeviceSearchStrategy.from_yaml('strategies/venous_stent_v1.yaml')
+summary = strategy.sync_from_adjudication(log)
+print(f"Synced {summary['total_synced']} decisions")
+
+# Save updated strategy
+strategy.to_yaml('strategies/venous_stent_v1.yaml')
+```
+
+**Note:** This **replaces** (not appends) existing overrides. The detailed audit trail remains in the AdjudicationLog CSV.
+
+**Recommended Workflow:**
+1. Use `AdjudicationLog` to track decisions with full context (who, when, why)
+2. Use `sync_from_adjudication()` to update strategy overrides
+3. The strategy YAML contains executable decision lists (lightweight, version-controlled)
+4. The adjudication CSV contains the audit trail (transparent, PRISMA-compliant)
+
+---
 
 ### `get_prisma_counts(included_df, excluded_df, needs_review_df)`
 
-Generate counts for PRISMA flow diagram.
+Generate counts for PRISMA flow diagram reporting.
+
+---
+
+## DeviceSearchStrategy vs AdjudicationLog
+
+### Purpose & Relationship
+
+These two classes serve **complementary but distinct purposes** in systematic reviews:
+
+| Aspect | DeviceSearchStrategy | AdjudicationLog |
+|--------|---------------------|-----------------|
+| **Purpose** | Define & execute search logic | Track detailed decision audit trail |
+| **Stores** | MDR keys + decision type only | Full context: who, when, why, device info |
+| **Format** | YAML (version controlled) | CSV (git-friendly diffs, Excel-compatible) |
+| **Use in workflow** | Apply search criteria reproducibly | Document PRISMA selection process |
+| **Required for** | Running `.apply()` method | PRISMA/RECORD reporting |
+
+### Recommended Workflow
+
+```python
+# 1. Apply search strategy
+strategy = DeviceSearchStrategy.from_yaml('strategies/venous_stent_v1.yaml')
+included, excluded, needs_review = strategy.apply(db)
+
+# 2. Track decisions in AdjudicationLog with full audit trail
+log = AdjudicationLog('adjudication/venous_stent_decisions.csv')
+for idx, row in needs_review.iterrows():
+    mdr_key = str(row['MDR_REPORT_KEY'])
+    # ... manual review logic ...
+    log.add(mdr_key, 'include', 'Matches device criteria', 'Reviewer Name')
+log.to_csv()
+
+# 3. Sync decisions to strategy for reproducible application
+summary = strategy.sync_from_adjudication(log)
+strategy.to_yaml('strategies/venous_stent_v1.yaml')
+
+# 4. Re-apply with updated overrides
+included, excluded, needs_review = strategy.apply(db)
+# included now contains manually adjudicated reports
+```
+
+### Why Both?
+
+**Strategy needs executable lists** (`inclusion_overrides`, `exclusion_overrides`) to apply manual decisions when `.apply()` is called, but shouldn't be bloated with audit metadata.
+
+**AdjudicationLog provides transparency** required for PRISMA/RECORD reporting: who made each decision, when, and why.
+
+**Separation of concerns**:
+- Strategy = reproducible search logic (code)
+- Log = audit trail (documentation)
 
 ---
 

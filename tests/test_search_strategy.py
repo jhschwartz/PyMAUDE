@@ -112,6 +112,69 @@ class TestDeviceSearchStrategy:
         with pytest.raises(ValueError, match="must be 'include' or 'exclude'"):
             strategy.add_manual_decision('1234567', 'invalid', 'Test')
 
+    def test_sync_from_adjudication(self, tmp_path):
+        """Test syncing decisions from AdjudicationLog."""
+        from pymaude.adjudication import AdjudicationLog
+
+        # Create adjudication log with decisions
+        log_path = tmp_path / "test_adjudication.csv"
+        log = AdjudicationLog(log_path)
+        log.add('1234567', 'include', 'Matches criteria', 'Reviewer1')
+        log.add('2345678', 'include', 'Also matches', 'Reviewer1')
+        log.add('7654321', 'exclude', 'False positive', 'Reviewer2')
+        log.add('8765432', 'exclude', 'Not a match', 'Reviewer2')
+        log.to_csv()
+
+        # Create strategy and sync
+        strategy = DeviceSearchStrategy(
+            name="test",
+            description="Test"
+        )
+        summary = strategy.sync_from_adjudication(log)
+
+        # Verify overrides were synced
+        assert set(strategy.inclusion_overrides) == {'1234567', '2345678'}
+        assert set(strategy.exclusion_overrides) == {'7654321', '8765432'}
+
+        # Verify summary
+        assert summary['inclusions_added'] == 2
+        assert summary['exclusions_added'] == 2
+        assert summary['total_synced'] == 4
+
+    def test_sync_from_adjudication_replaces_existing(self, tmp_path):
+        """Test that sync replaces (not appends) existing overrides."""
+        from pymaude.adjudication import AdjudicationLog
+
+        # Create strategy with existing overrides
+        strategy = DeviceSearchStrategy(
+            name="test",
+            description="Test",
+            inclusion_overrides=['OLD123'],
+            exclusion_overrides=['OLD456']
+        )
+
+        # Create adjudication log with NEW decisions
+        log_path = tmp_path / "test_adjudication.csv"
+        log = AdjudicationLog(log_path)
+        log.add('NEW789', 'include', 'New decision', 'Reviewer')
+        log.to_csv()
+
+        # Sync should replace, not append
+        strategy.sync_from_adjudication(log)
+
+        assert strategy.inclusion_overrides == ['NEW789']
+        assert strategy.exclusion_overrides == []
+
+    def test_sync_from_adjudication_invalid_input(self):
+        """Test validation of input to sync_from_adjudication."""
+        strategy = DeviceSearchStrategy(
+            name="test",
+            description="Test"
+        )
+
+        with pytest.raises(ValueError, match="must be an AdjudicationLog instance"):
+            strategy.sync_from_adjudication("not a log")
+
     def test_get_prisma_counts(self):
         """Test PRISMA count generation."""
         strategy = DeviceSearchStrategy(

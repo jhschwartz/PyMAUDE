@@ -357,6 +357,65 @@ class DeviceSearchStrategy:
 
         self.updated_at = datetime.now()
 
+    def sync_from_adjudication(self, log):
+        """
+        Sync manual decisions from an AdjudicationLog into this strategy.
+
+        This method updates the strategy's inclusion_overrides and exclusion_overrides
+        to match all decisions recorded in the adjudication log. This is the recommended
+        workflow: track detailed decisions in AdjudicationLog (with reasons, reviewers,
+        dates), then sync to DeviceSearchStrategy for reproducible application.
+
+        Args:
+            log: AdjudicationLog instance containing manual decisions
+
+        Returns:
+            dict: Summary with keys:
+                - 'inclusions_added': Number of inclusion overrides synced
+                - 'exclusions_added': Number of exclusion overrides synced
+                - 'total_synced': Total decisions synced
+
+        Example:
+            # Create adjudication log and add decisions
+            log = AdjudicationLog('adjudication/venous_stent.csv')
+            log.add('1234567', 'include', 'Matches criteria', 'Jake')
+            log.add('7654321', 'exclude', 'False positive', 'Jake')
+            log.to_csv()
+
+            # Load strategy and sync decisions
+            strategy = DeviceSearchStrategy.from_yaml('strategies/venous_stent_v1.yaml')
+            summary = strategy.sync_from_adjudication(log)
+            print(f"Synced {summary['total_synced']} decisions")
+
+            # Save updated strategy
+            strategy.to_yaml('strategies/venous_stent_v1.yaml')
+
+        Note:
+            This replaces (not appends) the existing inclusion/exclusion overrides.
+            The detailed audit trail remains in the AdjudicationLog CSV file.
+        """
+        from .adjudication import AdjudicationLog
+
+        if not isinstance(log, AdjudicationLog):
+            raise ValueError(f"log must be an AdjudicationLog instance, got {type(log).__name__}")
+
+        # Get all decisions from log
+        inclusion_keys = log.get_inclusion_keys()
+        exclusion_keys = log.get_exclusion_keys()
+
+        # Replace override lists (convert sets to lists)
+        self.inclusion_overrides = sorted(list(inclusion_keys))
+        self.exclusion_overrides = sorted(list(exclusion_keys))
+
+        # Update timestamp
+        self.updated_at = datetime.now()
+
+        return {
+            'inclusions_added': len(inclusion_keys),
+            'exclusions_added': len(exclusion_keys),
+            'total_synced': len(inclusion_keys) + len(exclusion_keys)
+        }
+
     def get_prisma_counts(self, included_df: pd.DataFrame, excluded_df: pd.DataFrame,
                           needs_review_df: pd.DataFrame) -> Dict[str, int]:
         """

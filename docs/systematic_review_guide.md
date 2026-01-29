@@ -41,6 +41,39 @@ MAUDE data requires special consideration:
 
 ---
 
+## Key Components
+
+### DeviceSearchStrategy
+
+Defines **reproducible search logic** for identifying device reports:
+- Boolean search criteria (broad → narrow)
+- Exclusion patterns for false positives
+- Manual inclusion/exclusion overrides (MDR keys only)
+- Saved as YAML for version control
+
+**Purpose**: Execute consistent, reproducible searches
+
+### AdjudicationLog
+
+Tracks **detailed decision audit trail** during manual review:
+- Who made each decision
+- When the decision was made
+- Why the decision was made (reason/rationale)
+- What device was being reviewed (context)
+- Saved as CSV for transparency and Excel compatibility
+
+**Purpose**: Document PRISMA selection process
+
+### Workflow Integration
+
+1. **Record decisions** in AdjudicationLog (full context)
+2. **Sync to strategy** using `sync_from_adjudication()` (executable overrides)
+3. **Re-apply strategy** to get final included/excluded datasets
+
+This separation maintains **reproducibility** (strategy YAML) while ensuring **transparency** (adjudication CSV) required for PRISMA/RECORD compliance.
+
+---
+
 ## Workflow Overview
 
 ### Step 1: Define Search Strategy
@@ -169,40 +202,40 @@ log.to_csv()
 
 ---
 
-### Step 4: Apply Manual Decisions
+### Step 4: Sync Decisions to Strategy
 
-Incorporate adjudication decisions into final dataset.
+Sync adjudication decisions to the search strategy for reproducible application.
 
 ```python
 # Load adjudication log
 log = AdjudicationLog.from_csv('adjudication/venous_stent_decisions.csv')
-manual_includes = log.get_inclusion_keys()
-manual_excludes = log.get_exclusion_keys()
 
-# Apply to needs_review DataFrame
-import pandas as pd
+# Sync decisions to strategy
+summary = strategy.sync_from_adjudication(log)
+print(f"Synced {summary['total_synced']} decisions:")
+print(f"  - Inclusions: {summary['inclusions_added']}")
+print(f"  - Exclusions: {summary['exclusions_added']}")
 
-# Add manually included reports
-manually_included = needs_review[
-    needs_review['MDR_REPORT_KEY'].astype(str).isin(manual_includes)
-]
-final_included = pd.concat([included, manually_included], ignore_index=True)
+# Save updated strategy for reproducibility
+strategy.to_yaml('search_strategies/venous_stent_v1.yaml')
 
-# Add manually excluded reports
-manually_excluded = needs_review[
-    needs_review['MDR_REPORT_KEY'].astype(str).isin(manual_excludes)
-]
-final_excluded = pd.concat([excluded, manually_excluded], ignore_index=True)
+# Re-apply strategy with updated overrides
+included, excluded, needs_review = strategy.apply(
+    db,
+    start_date='2019-01-01',
+    end_date='2023-12-31'
+)
 
-# Remaining reports (not yet adjudicated)
-remaining = needs_review[
-    ~needs_review['MDR_REPORT_KEY'].astype(str).isin(manual_includes | manual_excludes)
-]
-
-print(f"Final included: {len(final_included)} reports")
-print(f"Final excluded: {len(final_excluded)} reports")
-print(f"Remaining to review: {len(remaining)} reports")
+print(f"Final included: {len(included)} reports")
+print(f"Final excluded: {len(excluded)} reports")
+print(f"Remaining to review: {len(needs_review)} reports")
 ```
+
+**Why sync to strategy?**
+- **Reproducibility**: The strategy YAML becomes the single source of truth
+- **Version control**: Track decision evolution in git history
+- **Re-application**: Future runs automatically include/exclude adjudicated reports
+- **Transparency**: Clear separation between search logic (strategy) and audit trail (log)
 
 ---
 
@@ -246,7 +279,6 @@ End-to-end workflow for venous stent analysis:
 ```python
 from pymaude import MaudeDatabase, DeviceSearchStrategy
 from pymaude.adjudication import AdjudicationLog
-import pandas as pd
 
 # 1. Load/create search strategy
 strategy = DeviceSearchStrategy.from_yaml('search_strategies/venous_stent_v1.yaml')
@@ -258,28 +290,21 @@ included, excluded, needs_review = strategy.apply(db, start_date='2019-01-01')
 # 3. Load adjudication decisions (assume completed)
 log = AdjudicationLog.from_csv('adjudication/venous_stent_decisions.csv')
 
-# 4. Apply manual decisions
-manual_includes = log.get_inclusion_keys()
-manual_excludes = log.get_exclusion_keys()
+# 4. Sync decisions to strategy and re-apply
+summary = strategy.sync_from_adjudication(log)
+print(f"Synced {summary['total_synced']} adjudication decisions")
 
-manually_included = needs_review[
-    needs_review['MDR_REPORT_KEY'].astype(str).isin(manual_includes)
-]
-manually_excluded = needs_review[
-    needs_review['MDR_REPORT_KEY'].astype(str).isin(manual_excludes)
-]
+# Save updated strategy
+strategy.to_yaml('search_strategies/venous_stent_v1.yaml')
 
-final_included = pd.concat([included, manually_included], ignore_index=True)
-final_excluded = pd.concat([excluded, manually_excluded], ignore_index=True)
+# Re-apply with manual decisions
+final_included, final_excluded, remaining = strategy.apply(db, start_date='2019-01-01')
 
 # 5. Enrich with additional data
 final_included = db.enrich_with_patient_data(final_included)
 final_included = db.enrich_with_narratives(final_included)
 
 # 6. Generate PRISMA counts
-remaining = needs_review[
-    ~needs_review['MDR_REPORT_KEY'].astype(str).isin(manual_includes | manual_excludes)
-]
 counts = strategy.get_prisma_counts(final_included, final_excluded, remaining)
 
 # 7. Print summary
