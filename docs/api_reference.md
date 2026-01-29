@@ -2777,6 +2777,128 @@ print(f"Records excluded after review: {stats['exclusions']}")
 
 ---
 
+#### `include_remaining(needs_review_df, reason, reviewer, strategy_version="", device_info_column=None)`
+
+Include all undecided rows in needs_review at end of review session.
+
+Automatically filters out rows already in the log (previously decided), then includes all remaining rows. Useful for efficiently marking all leftover undecided rows as included after manual review.
+
+**Parameters**:
+- `needs_review_df` (pd.DataFrame): DataFrame with undecided rows (must have MDR_REPORT_KEY column)
+- `reason` (str): Explanation for bulk inclusion (e.g., "All remaining meet device criteria")
+- `reviewer` (str): Name/ID of reviewer
+- `strategy_version` (str, optional): Search strategy version. Default: ""
+- `device_info_column` (str, optional): Column name to extract per-row device info (e.g., 'BRAND_NAME'). Default: None
+
+**Returns**: int - Count of records added (excludes already-decided rows)
+
+**Raises**: ValueError - If MDR_REPORT_KEY column is missing from DataFrame
+
+**Example**:
+```python
+from pymaude import MaudeDatabase
+from pymaude.search_strategy import DeviceSearchStrategy
+from pymaude.adjudication import AdjudicationLog
+
+# Apply search strategy
+db = MaudeDatabase('maude.db')
+strategy = DeviceSearchStrategy.from_yaml('strategies/venous_stent.yaml')
+included, excluded, needs_review = strategy.apply(db, start_date='2019-01-01')
+
+# Load existing log
+log = AdjudicationLog.from_csv('adjudication/venous_stent_decisions.csv')
+
+# Manually review uncertain cases
+uncertain = needs_review[needs_review['BRAND_NAME'].isna()]
+for idx, row in uncertain.iterrows():
+    mdr_key = str(row['MDR_REPORT_KEY'])
+    # Manual review process...
+    log.add(mdr_key, 'include', 'Confirmed match', 'Jake', strategy.version)
+
+# Include all remaining undecided rows at end
+count = log.include_remaining(
+    needs_review,
+    'All remaining match known venous stent brands',
+    'Jake',
+    strategy.version,
+    device_info_column='BRAND_NAME'
+)
+print(f"Bulk included {count} remaining reports")
+
+# Save decisions
+log.to_csv()
+
+# Sync to strategy
+summary = strategy.sync_from_adjudication(log)
+strategy.to_yaml('strategies/venous_stent.yaml')
+```
+
+**Notes**:
+- Automatically skips rows already in log (won't duplicate decisions)
+- Returns 0 if all rows already decided or DataFrame is empty
+- Extracts device_info from specified column for context
+- Auto-extracts search_group column if present (for grouped strategies)
+- Combines well with manual review for hybrid workflows
+
+**Related**: `exclude_remaining()`, `add()`
+
+---
+
+#### `exclude_remaining(needs_review_df, reason, reviewer, strategy_version="", device_info_column=None)`
+
+Exclude all undecided rows in needs_review at end of review session.
+
+Automatically filters out rows already in the log (previously decided), then excludes all remaining rows. Useful for efficiently marking all leftover undecided rows as excluded after manual review.
+
+**Parameters**:
+- `needs_review_df` (pd.DataFrame): DataFrame with undecided rows (must have MDR_REPORT_KEY column)
+- `reason` (str): Explanation for bulk exclusion (e.g., "All remaining are false positives")
+- `reviewer` (str): Name/ID of reviewer
+- `strategy_version` (str, optional): Search strategy version. Default: ""
+- `device_info_column` (str, optional): Column name to extract per-row device info (e.g., 'GENERIC_NAME'). Default: None
+
+**Returns**: int - Count of records added (excludes already-decided rows)
+
+**Raises**: ValueError - If MDR_REPORT_KEY column is missing from DataFrame
+
+**Example**:
+```python
+from pymaude.adjudication import AdjudicationLog
+
+# Load existing log
+log = AdjudicationLog.from_csv('adjudication/decisions.csv')
+
+# Manually review promising cases
+promising = needs_review[needs_review['BRAND_NAME'].isin(['Venovo', 'Zilver Vena'])]
+for idx, row in promising.iterrows():
+    mdr_key = str(row['MDR_REPORT_KEY'])
+    # Manual review process...
+    log.add(mdr_key, 'include', 'Confirmed venous stent', 'Jake')
+
+# Exclude all remaining undecided rows (assumed false positives)
+count = log.exclude_remaining(
+    needs_review,
+    'All remaining are ultrasonic devices or other false positives',
+    'Jake',
+    'v1.0',
+    device_info_column='GENERIC_NAME'
+)
+print(f"Bulk excluded {count} remaining reports")
+
+log.to_csv()
+```
+
+**Notes**:
+- Automatically skips rows already in log (won't duplicate decisions)
+- Returns 0 if all rows already decided or DataFrame is empty
+- Extracts device_info from specified column for context
+- Auto-extracts search_group column if present (for grouped strategies)
+- Useful when most needs_review reports are false positives
+
+**Related**: `include_remaining()`, `add()`
+
+---
+
 ## Project Generator
 
 ```bash

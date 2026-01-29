@@ -304,12 +304,78 @@ for idx, row in needs_review.iterrows():
 log.to_csv()
 ```
 
+**Hybrid Approach: Manual Review + Bulk End-of-Review**
+
+For efficient workflows, combine manual review of uncertain cases with bulk operations for clear-cut decisions:
+
+```python
+from pymaude.adjudication import AdjudicationLog
+
+# Create or load adjudication log
+log = AdjudicationLog('adjudication/venous_stent_decisions.csv')
+
+# Step 1: Manually review uncertain cases (e.g., missing brand names)
+uncertain = needs_review[needs_review['BRAND_NAME'].isna()]
+print(f"Manually reviewing {len(uncertain)} uncertain reports")
+
+for idx, row in uncertain.iterrows():
+    mdr_key = str(row['MDR_REPORT_KEY'])
+    generic = row.get('GENERIC_NAME', '')
+
+    print(f"\nReport {mdr_key}: {generic}")
+    decision = input("Include? (y/n): ")
+    reason = input("Reason: ")
+
+    if decision.lower() == 'y':
+        log.add(mdr_key, 'include', reason, 'Jake', strategy.version,
+                device_info=generic)
+    else:
+        log.add(mdr_key, 'exclude', reason, 'Jake', strategy.version,
+                device_info=generic)
+
+# Step 2: Include all remaining undecided rows at end
+count = log.include_remaining(
+    needs_review,
+    'All remaining match known venous stent brands',
+    'Jake',
+    strategy.version,
+    device_info_column='BRAND_NAME'
+)
+print(f"Bulk included {count} remaining reports")
+
+# Save decisions
+log.to_csv()
+```
+
+**Alternative: Exclude Remaining**
+
+If most undecided reports are likely false positives, manually include the few matches and exclude the rest:
+
+```python
+# Manually review promising cases
+promising = needs_review[needs_review['BRAND_NAME'].isin(['Venovo', 'Zilver Vena'])]
+for idx, row in promising.iterrows():
+    # Manual review to confirm...
+    log.add(mdr_key, 'include', 'Confirmed venous stent', 'Jake')
+
+# Exclude all remaining as false positives
+count = log.exclude_remaining(
+    needs_review,
+    'Remaining are ultrasonic devices or other false positives',
+    'Jake',
+    strategy.version,
+    device_info_column='GENERIC_NAME'
+)
+log.to_csv()
+```
+
 **Adjudication Best Practices:**
 - **Dual review**: Have two reviewers independently assess
 - **Reconciliation**: Resolve disagreements through discussion
 - **Document reasons**: Clear, specific rationale for each decision
 - **Track version**: Link decisions to strategy version
 - **Inter-rater reliability**: Calculate Cohen's kappa for agreement
+- **End-of-review efficiency**: Use `include_remaining()` or `exclude_remaining()` to mark all leftover undecided rows after manual review
 
 ---
 

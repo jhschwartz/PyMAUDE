@@ -141,6 +141,156 @@ class AdjudicationLog:
         )
         self.records.append(record)
 
+    def include_remaining(self, needs_review_df: pd.DataFrame, reason: str,
+                         reviewer: str, strategy_version: str = "",
+                         device_info_column: str = None) -> int:
+        """
+        Include all rows in needs_review that haven't been decided yet.
+
+        Automatically filters out rows already in the log (previously decided),
+        then includes all remaining rows. Useful at end of review to mark all
+        leftover undecided rows as included.
+
+        Args:
+            needs_review_df: DataFrame with undecided rows (must have MDR_REPORT_KEY)
+            reason: Explanation for bulk inclusion (e.g., "All remaining meet criteria")
+            reviewer: Name/ID of reviewer
+            strategy_version: Optional version of search strategy
+            device_info_column: Optional column name to extract per-row device info
+
+        Returns:
+            Count of records added (excludes already-decided rows)
+
+        Raises:
+            ValueError: If MDR_REPORT_KEY column missing
+
+        Examples:
+            # After manually reviewing uncertain cases
+            log = AdjudicationLog('adjudication/decisions.csv')
+            for idx, row in uncertain.iterrows():
+                log.add(row['MDR_REPORT_KEY'], 'include', 'Manual review', 'Jake')
+
+            # Include all remaining undecided rows
+            count = log.include_remaining(
+                needs_review,
+                'All remaining match device criteria',
+                'Jake',
+                'v1.0',
+                device_info_column='BRAND_NAME'
+            )
+            print(f"Bulk included {count} remaining reports")
+            log.to_csv()
+        """
+        # Validate MDR_REPORT_KEY column exists
+        if 'MDR_REPORT_KEY' not in needs_review_df.columns:
+            raise ValueError("DataFrame must contain 'MDR_REPORT_KEY' column")
+
+        # Get all MDR keys already in log (both included and excluded)
+        decided_keys = {record.mdr_report_key for record in self.records}
+
+        # Filter to undecided rows
+        remaining = needs_review_df[
+            ~needs_review_df['MDR_REPORT_KEY'].astype(str).isin(decided_keys)
+        ]
+
+        # Add all remaining rows
+        count = 0
+        for idx, row in remaining.iterrows():
+            mdr_key = str(row['MDR_REPORT_KEY'])
+
+            # Extract device info if column specified
+            device_info = ""
+            if device_info_column and device_info_column in remaining.columns:
+                val = row.get(device_info_column, "")
+                device_info = "" if pd.isna(val) else str(val)
+
+            # Auto-extract search_group if column exists (for grouped strategies)
+            search_group = ""
+            if 'search_group' in remaining.columns:
+                val = row.get('search_group', "")
+                search_group = "" if pd.isna(val) else str(val)
+
+            self.add(mdr_key, 'include', reason, reviewer, strategy_version,
+                    device_info, search_group)
+            count += 1
+
+        return count
+
+    def exclude_remaining(self, needs_review_df: pd.DataFrame, reason: str,
+                         reviewer: str, strategy_version: str = "",
+                         device_info_column: str = None) -> int:
+        """
+        Exclude all rows in needs_review that haven't been decided yet.
+
+        Automatically filters out rows already in the log (previously decided),
+        then excludes all remaining rows. Useful at end of review to mark all
+        leftover undecided rows as excluded.
+
+        Args:
+            needs_review_df: DataFrame with undecided rows (must have MDR_REPORT_KEY)
+            reason: Explanation for bulk exclusion (e.g., "All remaining are false positives")
+            reviewer: Name/ID of reviewer
+            strategy_version: Optional version of search strategy
+            device_info_column: Optional column name to extract per-row device info
+
+        Returns:
+            Count of records added (excludes already-decided rows)
+
+        Raises:
+            ValueError: If MDR_REPORT_KEY column missing
+
+        Examples:
+            # After manually reviewing uncertain cases
+            log = AdjudicationLog('adjudication/decisions.csv')
+            for idx, row in uncertain.iterrows():
+                log.add(row['MDR_REPORT_KEY'], 'exclude', 'Manual review', 'Jake')
+
+            # Exclude all remaining undecided rows
+            count = log.exclude_remaining(
+                needs_review,
+                'All remaining are false positives',
+                'Jake',
+                'v1.0',
+                device_info_column='GENERIC_NAME'
+            )
+            print(f"Bulk excluded {count} remaining reports")
+            log.to_csv()
+        """
+        # Validate MDR_REPORT_KEY column exists
+        if 'MDR_REPORT_KEY' not in needs_review_df.columns:
+            raise ValueError("DataFrame must contain 'MDR_REPORT_KEY' column")
+
+        # Get all MDR keys already in log (both included and excluded)
+        decided_keys = {record.mdr_report_key for record in self.records}
+
+        # Filter to undecided rows
+        remaining = needs_review_df[
+            ~needs_review_df['MDR_REPORT_KEY'].astype(str).isin(decided_keys)
+        ]
+
+        # Add all remaining rows
+        count = 0
+        for idx, row in remaining.iterrows():
+            mdr_key = str(row['MDR_REPORT_KEY'])
+
+            # Extract device info if column specified
+            device_info = ""
+            if device_info_column and device_info_column in remaining.columns:
+                val = row.get(device_info_column, "")
+                device_info = "" if pd.isna(val) else str(val)
+
+            # Auto-extract search_group if column exists (for grouped strategies)
+            search_group = ""
+            if 'search_group' in remaining.columns:
+                val = row.get('search_group', "")
+                search_group = "" if pd.isna(val) else str(val)
+
+            self.add(mdr_key, 'exclude', reason, reviewer, strategy_version,
+                    device_info, search_group)
+            count += 1
+
+        return count
+
     def to_csv(self) -> None:
         """
         Save all records to CSV file.

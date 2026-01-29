@@ -352,6 +352,147 @@ class TestAdjudicationLog:
         assert len(df) == 0
         assert 'mdr_report_key' in df.columns
 
+    def test_include_remaining_basic(self, tmp_path):
+        """Test include_remaining with all undecided rows."""
+        log_path = tmp_path / "adjudication.csv"
+        log = AdjudicationLog(log_path)
+
+        # Create mock needs_review DataFrame
+        needs_review = pd.DataFrame({
+            'MDR_REPORT_KEY': ['1111111', '2222222', '3333333'],
+            'BRAND_NAME': ['Device A', 'Device B', 'Device C']
+        })
+
+        # Include all remaining
+        count = log.include_remaining(needs_review, 'Test bulk include', 'Jake', 'v1.0')
+
+        assert count == 3
+        assert len(log.records) == 3
+        assert log.get_inclusion_keys() == {'1111111', '2222222', '3333333'}
+        assert len(log.get_exclusion_keys()) == 0
+
+    def test_exclude_remaining_basic(self, tmp_path):
+        """Test exclude_remaining with all undecided rows."""
+        log_path = tmp_path / "adjudication.csv"
+        log = AdjudicationLog(log_path)
+
+        # Create mock needs_review DataFrame
+        needs_review = pd.DataFrame({
+            'MDR_REPORT_KEY': ['1111111', '2222222', '3333333'],
+            'GENERIC_NAME': ['Generic A', 'Generic B', 'Generic C']
+        })
+
+        # Exclude all remaining
+        count = log.exclude_remaining(needs_review, 'Test bulk exclude', 'Jake', 'v1.0')
+
+        assert count == 3
+        assert len(log.records) == 3
+        assert log.get_exclusion_keys() == {'1111111', '2222222', '3333333'}
+        assert len(log.get_inclusion_keys()) == 0
+
+    def test_include_remaining_with_prior_decisions(self, tmp_path):
+        """Test include_remaining skips already-decided rows."""
+        log_path = tmp_path / "adjudication.csv"
+        log = AdjudicationLog(log_path)
+
+        # Create mock needs_review DataFrame
+        needs_review = pd.DataFrame({
+            'MDR_REPORT_KEY': ['1111111', '2222222', '3333333', '4444444'],
+            'BRAND_NAME': ['Device A', 'Device B', 'Device C', 'Device D']
+        })
+
+        # Add some prior decisions
+        log.add('1111111', 'include', 'Manual review', 'Jake')
+        log.add('3333333', 'exclude', 'Manual review', 'Jake')
+
+        # Include remaining (should skip 1111111 and 3333333)
+        count = log.include_remaining(needs_review, 'Bulk include remaining', 'Jake', 'v1.0')
+
+        assert count == 2  # Only 2222222 and 4444444
+        assert len(log.records) == 4  # 2 prior + 2 new
+        assert log.get_inclusion_keys() == {'1111111', '2222222', '4444444'}
+        assert log.get_exclusion_keys() == {'3333333'}
+
+    def test_exclude_remaining_with_prior_decisions(self, tmp_path):
+        """Test exclude_remaining skips already-decided rows."""
+        log_path = tmp_path / "adjudication.csv"
+        log = AdjudicationLog(log_path)
+
+        # Create mock needs_review DataFrame
+        needs_review = pd.DataFrame({
+            'MDR_REPORT_KEY': ['1111111', '2222222', '3333333', '4444444'],
+            'GENERIC_NAME': ['Generic A', 'Generic B', 'Generic C', 'Generic D']
+        })
+
+        # Add some prior decisions
+        log.add('2222222', 'include', 'Manual review', 'Jake')
+        log.add('4444444', 'exclude', 'Manual review', 'Jake')
+
+        # Exclude remaining (should skip 2222222 and 4444444)
+        count = log.exclude_remaining(needs_review, 'Bulk exclude remaining', 'Jake', 'v1.0')
+
+        assert count == 2  # Only 1111111 and 3333333
+        assert len(log.records) == 4  # 2 prior + 2 new
+        assert log.get_inclusion_keys() == {'2222222'}
+        assert log.get_exclusion_keys() == {'3333333', '1111111', '4444444'}
+
+    def test_remaining_with_device_info_column(self, tmp_path):
+        """Test extracting device info from specified column."""
+        log_path = tmp_path / "adjudication.csv"
+        log = AdjudicationLog(log_path)
+
+        # Create mock needs_review DataFrame
+        needs_review = pd.DataFrame({
+            'MDR_REPORT_KEY': ['1111111', '2222222'],
+            'BRAND_NAME': ['Venovo', 'Zilver Vena'],
+            'GENERIC_NAME': ['Venous Stent', 'Venous Stent']
+        })
+
+        # Include with device_info_column
+        count = log.include_remaining(
+            needs_review,
+            'Known venous stent brands',
+            'Jake',
+            'v1.0',
+            device_info_column='BRAND_NAME'
+        )
+
+        assert count == 2
+        assert log.records[0].device_info == 'Venovo'
+        assert log.records[1].device_info == 'Zilver Vena'
+
+    def test_remaining_empty_dataframe(self, tmp_path):
+        """Test handling empty needs_review DataFrame."""
+        log_path = tmp_path / "adjudication.csv"
+        log = AdjudicationLog(log_path)
+
+        # Create empty DataFrame with correct columns
+        needs_review = pd.DataFrame(columns=['MDR_REPORT_KEY', 'BRAND_NAME'])
+
+        # Should handle gracefully
+        count = log.include_remaining(needs_review, 'Test empty', 'Jake', 'v1.0')
+
+        assert count == 0
+        assert len(log.records) == 0
+
+    def test_remaining_missing_column(self, tmp_path):
+        """Test error when MDR_REPORT_KEY column missing."""
+        log_path = tmp_path / "adjudication.csv"
+        log = AdjudicationLog(log_path)
+
+        # Create DataFrame without MDR_REPORT_KEY
+        needs_review = pd.DataFrame({
+            'SOME_OTHER_KEY': ['1111111', '2222222'],
+            'BRAND_NAME': ['Device A', 'Device B']
+        })
+
+        # Should raise ValueError
+        with pytest.raises(ValueError, match="must contain 'MDR_REPORT_KEY'"):
+            log.include_remaining(needs_review, 'Test', 'Jake')
+
+        with pytest.raises(ValueError, match="must contain 'MDR_REPORT_KEY'"):
+            log.exclude_remaining(needs_review, 'Test', 'Jake')
+
 
 class TestDeviceSearchStrategyGrouped:
     """Test DeviceSearchStrategy with grouped (dict) criteria."""
