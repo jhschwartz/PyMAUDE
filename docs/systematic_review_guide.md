@@ -352,7 +352,7 @@ pymaude_venous_stent/
 1. **EVENT_KEY**: Always deduplicate (8% duplication rate)
 2. **Date filtering**: Use DATE_RECEIVED for temporal queries
 3. **Data quality**: Note completeness rates in limitations
-4. **Product codes**: Cross-reference with FDA database
+4. **Product codes**: Cross-reference with FDA database, but use at your own risk (frequently absent or incorrect in MAUDE)
 
 ---
 
@@ -415,3 +415,5 @@ See `examples/search_strategies/` for:
 ---
 
 **Next**: See `examples/notebooks/systematic_review_example.ipynb` for hands-on tutorial.
+
+<!-- TODO: that notebook doesn't exist yet -->
