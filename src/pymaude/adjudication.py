@@ -109,13 +109,13 @@ class AdjudicationLog:
         if self.path.exists():
             self._load_from_csv()
 
-    def add(self, mdr_key: str, decision: str, reason: str, reviewer: str,
+    def add(self, mdr_key, decision: str, reason: str, reviewer: str,
             strategy_version: str = "", device_info: str = "", search_group: str = "") -> None:
         """
         Add adjudication decision.
 
         Args:
-            mdr_key: MDR_REPORT_KEY
+            mdr_key: str MDR_REPORT_KEY or list[str] [MDR_REPORT_KEY_1, MDR_REPORT_KEY, ...]
             decision: "include" or "exclude"
             reason: Explanation for decision
             reviewer: Name/ID of reviewer
@@ -129,17 +129,21 @@ class AdjudicationLog:
         if decision not in ("include", "exclude"):
             raise ValueError(f"decision must be 'include' or 'exclude', got: {decision}")
 
-        record = AdjudicationRecord(
-            mdr_report_key=str(mdr_key),
-            decision=decision,
-            reason=reason,
-            reviewer=reviewer,
-            date=datetime.now(),
-            strategy_version=strategy_version,
-            device_info=device_info,
-            search_group=search_group
-        )
-        self.records.append(record)
+        if isinstance(mdr_key, str):
+            mdr_key = [mdr_key]
+
+        for mdr in mdr_key:
+            record = AdjudicationRecord(
+                mdr_report_key=str(mdr),
+                decision=decision,
+                reason=reason,
+                reviewer=reviewer,
+                date=datetime.now(),
+                strategy_version=strategy_version,
+                device_info=device_info,
+                search_group=search_group
+            )
+            self.records.append(record)
 
     def include_remaining(self, needs_review_df: pd.DataFrame, reason: str,
                          reviewer: str, strategy_version: str = "",
