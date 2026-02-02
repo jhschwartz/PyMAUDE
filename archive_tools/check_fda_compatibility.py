@@ -109,7 +109,7 @@ class CompatibilityChecker:
 
         test_cases = [
             # (year, table, expected_filename)
-            (2023, 'master', 'mdrfoithru2023.zip'),
+            (2025, 'master', 'mdrfoithru2025.zip'),
             (2023, 'device', 'device2023.zip'),
             (2023, 'text', 'foitext2023.zip'),
             (2000, 'device', 'device2000.zip'),  # First year with new schema
@@ -215,6 +215,48 @@ class CompatibilityChecker:
 
         return all_available
 
+    def check_classification_file(self):
+        """Check if FDA device classification file is available."""
+        check_name = 'classification_file_available'
+        self.log("Checking device classification file availability...")
+
+        from pymaude.metadata import CLASSIFICATION_METADATA
+
+        url = CLASSIFICATION_METADATA['url']
+
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            response = requests.head(url, headers=headers, timeout=10, allow_redirects=False)
+
+            if response.status_code == 200:
+                self.log(f"Classification file available: {url}", 'SUCCESS')
+                self.results['checks'][check_name] = {
+                    'status': 'pass',
+                    'url': url,
+                    'status_code': response.status_code
+                }
+                return True
+            else:
+                self.log(f"Classification file returned status {response.status_code}", 'WARNING')
+                self.results['warnings'].append(
+                    f"Classification file status: {response.status_code}"
+                )
+                self.results['checks'][check_name] = {
+                    'status': 'warning',
+                    'url': url,
+                    'status_code': response.status_code
+                }
+                return False
+
+        except Exception as e:
+            self.log(f"Cannot access classification file: {e}", 'WARNING')
+            self.results['warnings'].append(f"Classification file error: {str(e)}")
+            self.results['checks'][check_name] = {
+                'status': 'warning',
+                'error': str(e)
+            }
+            return False
+
     def check_download_and_parse(self):
         """Download and parse a small file to verify format compatibility."""
         if self.quick:
@@ -317,6 +359,7 @@ class CompatibilityChecker:
             ("Base URL Accessibility", self.check_base_url),
             ("File Naming Patterns", self.check_file_patterns),
             ("File Availability", self.check_file_availability),
+            ("Classification File", self.check_classification_file),
             ("Download and Parse", self.check_download_and_parse),
         ]
 
