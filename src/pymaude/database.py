@@ -206,9 +206,6 @@ class MaudeDatabase:
             {'group1': [...], ...} — grouped search; result includes search_group column.
                                      Use None as criteria to skip a group.
 
-        # TODO: consider simplifying — grouped dict search adds ~50 lines for
-        # multi-device-class studies but may be overkill for general use.
-
         All matching is case-insensitive substring matching.
 
         Args:
@@ -594,6 +591,15 @@ class MaudeDatabase:
             self.conn.execute(f"INSERT INTO {table} BY NAME {select_sql}")
         else:
             self.conn.execute(f"CREATE TABLE {table} AS {select_sql}")
+
+        # foidevproblem.txt has no header row; DuckDB names columns column0, column1, ...
+        # Rename to the known schema so downstream queries work.
+        if table == 'problems':
+            existing = {r[0] for r in self.conn.execute("DESCRIBE problems").fetchall()}
+            if 'column0' in existing and 'MDR_REPORT_KEY' not in existing:
+                for i, name in enumerate(['MDR_REPORT_KEY', 'DEVICE_PROBLEM_CODE', 'DATE_ADDED_FLAG']):
+                    if f'column{i}' in existing:
+                        self.conn.execute(f'ALTER TABLE problems RENAME COLUMN "column{i}" TO "{name}"')
 
         rows = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         if self.verbose:
