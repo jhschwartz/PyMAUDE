@@ -1,0 +1,9 @@
+venv/
+maude_data/
+*.tmp
+*.yaml
+*.DS_Store 
+*.duckdb
+*.pyc
+*/__pycache__
+*/*.egg-info/
