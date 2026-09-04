@@ -580,26 +580,48 @@ class MaudeDatabase:
             print(f'  Loading {table} ({os.path.basename(filepath)})...')
 
         fp = filepath.replace("'", "''")
-        select_sql = f"""
-            SELECT * FROM read_csv('{fp}', {self._CSV_OPTS})
-        """
 
-        if self._table_exists(table):
-            if not append:
-                self.conn.execute(f"DELETE FROM {table}")
-            self._ensure_new_columns(table, filepath)
-            self.conn.execute(f"INSERT INTO {table} BY NAME {select_sql}")
-        else:
-            self.conn.execute(f"CREATE TABLE {table} AS {select_sql}")
-
-        # foidevproblem.txt has no header row; DuckDB names columns column0, column1, ...
-        # Rename to the known schema so downstream queries work.
         if table == 'problems':
-            existing = {r[0] for r in self.conn.execute("DESCRIBE problems").fetchall()}
-            if 'column0' in existing and 'MDR_REPORT_KEY' not in existing:
-                for i, name in enumerate(['MDR_REPORT_KEY', 'DEVICE_PROBLEM_CODE', 'DATE_ADDED_FLAG']):
-                    if f'column{i}' in existing:
-                        self.conn.execute(f'ALTER TABLE problems RENAME COLUMN "column{i}" TO "{name}"')
+            # foidevproblem has no header row — name columns explicitly so DuckDB
+            # doesn't fall back to column0/column1/column2 naming.
+            # The file has shipped with 2 or 3 columns depending on the release year.
+            _opts = (f"sep='|', encoding='latin-1', quote='', ignore_errors=true, "
+                     f"all_varchar=true, strict_mode=false, header=false")
+            with open(filepath, 'r', encoding='latin1') as _f:
+                _ncols = len(_f.readline().split('|'))
+            if _ncols >= 3:
+                _col_select = ("column0 AS MDR_REPORT_KEY, "
+                               "column1 AS DEVICE_PROBLEM_CODE, "
+                               "column2 AS DATE_ADDED_FLAG")
+            else:
+                _col_select = ("column0 AS MDR_REPORT_KEY, "
+                               "column1 AS DEVICE_PROBLEM_CODE")
+            select_sql = f"""
+                SELECT {_col_select}
+                FROM read_csv('{fp}', {_opts})
+            """
+            if self._table_exists(table):
+                # Migrate column names if db was created before explicit-naming fix.
+                existing = {r[0] for r in self.conn.execute("DESCRIBE problems").fetchall()}
+                if 'column0' in existing and 'MDR_REPORT_KEY' not in existing:
+                    for i, name in enumerate(['MDR_REPORT_KEY', 'DEVICE_PROBLEM_CODE', 'DATE_ADDED_FLAG']):
+                        if f'column{i}' in existing:
+                            self.conn.execute(f'ALTER TABLE problems RENAME COLUMN "column{i}" TO "{name}"')
+                self.conn.execute(f"DELETE FROM {table}")
+                self.conn.execute(f"INSERT INTO {table} BY NAME {select_sql}")
+            else:
+                self.conn.execute(f"CREATE TABLE {table} AS {select_sql}")
+        else:
+            select_sql = f"""
+                SELECT * FROM read_csv('{fp}', {self._CSV_OPTS})
+            """
+            if self._table_exists(table):
+                if not append:
+                    self.conn.execute(f"DELETE FROM {table}")
+                self._ensure_new_columns(table, filepath)
+                self.conn.execute(f"INSERT INTO {table} BY NAME {select_sql}")
+            else:
+                self.conn.execute(f"CREATE TABLE {table} AS {select_sql}")
 
         rows = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         if self.verbose:
