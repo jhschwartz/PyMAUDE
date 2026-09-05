@@ -6,7 +6,7 @@ import resource
 DB_PATH  = '../maude.duckdb'
 DATA_DIR = '../maude_data'
 YEARS    = 'all'
-TABLES   = ['master', 'device', 'text', 'patient', 'problems']
+TABLES   = ['master', 'device', 'text', 'patient', 'problem']
 
 
 def run(download):
@@ -34,6 +34,6 @@ if __name__ == '__main__':
 
     print("\nBeginning Run 2 (load only)...")
     t_load = run(download=False)
-    print(f"Run 2 (load only):       {t_load:.1f} seconds, {peak_mb} mb")
     peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6  # macOS: bytes
+    print(f"Run 2 (load only):       {t_load:.1f} seconds, {peak_mb} mb")
     print(f"Estimated download time: {t_full - t_load:.1f}s")
