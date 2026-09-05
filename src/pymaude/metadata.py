@@ -1,6 +1,6 @@
 # metadata.py - MAUDE table configuration
 # Copyright (C) 2026 Jacob Schwartz <jaschwa@umich.edu>
-# GNU GPL v3
+# MIT License
 
 FDA_BASE_URL = "https://www.accessdata.fda.gov/MAUDE/ftparea"
 FDA_PREMARKET_URL = "https://www.accessdata.fda.gov/premarket/ftparea"

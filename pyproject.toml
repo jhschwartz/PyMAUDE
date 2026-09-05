@@ -9,11 +9,11 @@ description = "PyMAUDE: FDA MAUDE adverse event database interface"
 authors = [{name = "Jacob Schwartz", email = "jaschwa@umich.edu"}]
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "GPL-3.0-or-later"}
+license = {text = "MIT"}
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
 ]
 dependencies = [

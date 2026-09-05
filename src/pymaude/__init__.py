@@ -1,6 +1,6 @@
 # PyMAUDE - FDA MAUDE Database Interface (DuckDB backend)
 # Copyright (C) 2026 Jacob Schwartz <jaschwa@umich.edu>
-# GNU GPL v3
+# MIT License
 
 from .database import MaudeDatabase
 from .metadata import TABLE_METADATA, FDA_BASE_URL

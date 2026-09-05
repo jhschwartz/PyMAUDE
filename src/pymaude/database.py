@@ -1,6 +1,6 @@
 # database.py - FDA MAUDE Database Interface (DuckDB backend)
 # Copyright (C) 2026 Jacob Schwartz <jaschwa@umich.edu>
-# GNU GPL v3
+# MIT License
 
 """
 MaudeDatabase: download, load, and query FDA MAUDE adverse event data.
