@@ -5,7 +5,7 @@
 from .database import MaudeDatabase
 from .metadata import TABLE_METADATA, FDA_BASE_URL
 
-__version__ = '2.0.0'
+__version__ = '0.2.0'
 __author__ = 'Jacob Schwartz <jaschwa@umich.edu>'
 __all__ = [
     'MaudeDatabase',

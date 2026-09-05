@@ -43,11 +43,16 @@ MDR_REPORT_KEY|SEQUENCE_NUMBER_OUTCOME|DATE_RECEIVED
 1004|H;IN|11/01/2019
 """
 
-PROBLEMS_CSV = """\
-MDR_REPORT_KEY|DEVICE_PROBLEM_CODE|DATE_ADDED_FLAG
+PROBLEMS_THRU_CSV = """\
 1001|1546|
 1002|2993|
 1003|1546|
+"""
+
+# Overlaps with PROBLEMS_THRU_CSV on (1001, 1546); adds one new row.
+PROBLEMS_CURRENT_CSV = """\
+1001|1546|
+1004|9999|
 """
 
 
@@ -71,8 +76,9 @@ def data_dir(tmp_path):
     # Patient: cumulative (no year suffix in filename pattern)
     (d / 'patientthru2020.txt').write_text(PATIENT_CSV)
 
-    # Problems: single file for all years
-    (d / 'foidevproblem.txt').write_text(PROBLEMS_CSV)
+    # Problems: cumulative thru file + current-year file (no header row in real data)
+    (d / 'foidevproblem_thru2025.txt').write_text(PROBLEMS_THRU_CSV)
+    (d / 'foidevproblem.txt').write_text(PROBLEMS_CURRENT_CSV)
 
     return str(d)
 
@@ -86,6 +92,6 @@ def db(tmp_path, data_dir):
         data_dir=data_dir,
         verbose=False,
     )
-    database.add_years(2020, tables=['master', 'device', 'text', 'patient', 'problems'])
+    database.add_years(2020, tables=['master', 'device', 'text', 'patient', 'problem'])
     yield database
     database.close()

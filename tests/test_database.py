@@ -23,9 +23,22 @@ class TestAddYears:
         # Patient fixture has 4 records; all are loaded (no year filter)
         assert result.iloc[0, 0] == 4
 
-    def test_loads_problems(self, db):
-        result = db.query("SELECT COUNT(*) FROM problems")
+    def test_loads_problem(self, db):
+        result = db.query("SELECT COUNT(*) FROM problem")
         assert result.iloc[0, 0] == 3
+
+    def test_problem_dedup_on_two_file_load(self, tmp_path, data_dir):
+        """Loading thru + current-year problem files should not create duplicates."""
+        from datetime import datetime
+        from pymaude import MaudeDatabase
+        db = MaudeDatabase(str(tmp_path / 'dedup.duckdb'), data_dir=data_dir, verbose=False)
+        current_year = datetime.now().year
+        # Load prior years (triggers thru file) + current year (triggers foidevproblem.txt)
+        db.add_years([2020, current_year], tables=['problem'])
+        result = db.query("SELECT COUNT(*) FROM problem")
+        # thru has 3 rows, current has 2 rows but 1 overlaps → expect 4 unique rows
+        assert result.iloc[0, 0] == 4
+        db.close()
 
     def test_device_name_concat_created(self, db):
         result = db.query("SELECT DEVICE_NAME_CONCAT FROM device LIMIT 1")

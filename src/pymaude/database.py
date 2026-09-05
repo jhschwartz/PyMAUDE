@@ -14,6 +14,8 @@ Usage:
 """
 
 import os
+import json
+import shutil
 import zipfile
 import hashlib
 from collections import defaultdict
@@ -111,7 +113,7 @@ class MaudeDatabase:
 
         self._create_indexes()
 
-    def update(self, download=True, force_download=False):
+    def update(self, download=True, force_download=True):
         """
         Refresh all currently-loaded years and add any new years since the last load.
 
@@ -345,7 +347,7 @@ class MaudeDatabase:
             return results_df
         placeholders = ', '.join(['?'] * len(keys))
         problems = self.conn.execute(
-            f"SELECT * FROM problems WHERE MDR_REPORT_KEY IN ({placeholders})", keys
+            f"SELECT * FROM problem WHERE MDR_REPORT_KEY IN ({placeholders})", keys
         ).df()
         return results_df.merge(problems, on='MDR_REPORT_KEY', how='left',
                                 suffixes=('', '_problem'))
@@ -358,7 +360,7 @@ class MaudeDatabase:
         """Print a summary of loaded tables."""
         print(f"Database : {self.db_path}")
         print(f"Data dir : {self.data_dir}")
-        for t in ['master', 'device', 'text', 'patient', 'problems']:
+        for t in ['master', 'device', 'text', 'patient', 'problem']:
             if not self._table_exists(t):
                 print(f"  {t:10s}: not loaded")
                 continue
@@ -377,6 +379,93 @@ class MaudeDatabase:
     def close(self):
         """Close the DuckDB connection."""
         self.conn.close()
+
+    # ── Public: archiving ───────────────────────────────────────────────────────
+
+    def archive(self, output_dir, include_raw=False):
+        """
+        Prepare a citable snapshot of this database (e.g. for Zenodo upload).
+
+        Checkpoints and copies the DuckDB file, and writes a manifest.json
+        recording, per loaded table/year: source file, SHA-256 checksum, row
+        count, and load timestamp (from _load_metadata) — plus the DuckDB and
+        pymaude versions used to build it, so the snapshot can be reproduced
+        or verified later.
+
+        Args:
+            output_dir: Directory to write the archive into (created if missing).
+            include_raw: If True, also copy the raw MAUDE source files referenced
+                in _load_metadata (from data_dir) into an output_dir/raw/ subfolder.
+
+        Returns:
+            Path to the written manifest.json.
+        """
+        import pymaude
+
+        os.makedirs(output_dir, exist_ok=True)
+        self.conn.execute("CHECKPOINT")
+
+        db_filename = os.path.basename(self.db_path)
+        db_dest = os.path.join(output_dir, db_filename)
+        shutil.copy2(self.db_path, db_dest)
+
+        rows = self.conn.execute(
+            "SELECT table_name, year, source_file, checksum, row_count, loaded_at "
+            "FROM _load_metadata ORDER BY table_name, year"
+        ).fetchall()
+
+        tables = [
+            {
+                'table': r[0],
+                'year': r[1] if r[1] != _ALL_YEARS else None,
+                'source_file': r[2],
+                'sha256': r[3],
+                'row_count': r[4],
+                'loaded_at': r[5].isoformat(),
+            }
+            for r in rows
+        ]
+
+        manifest = {
+            'generated_at': datetime.now().isoformat(),
+            'pymaude_version': pymaude.__version__,
+            'duckdb_version': duckdb.__version__,
+            'checksum_algorithm': 'sha256',
+            'database': {
+                'filename': db_filename,
+                'sha256': self._checksum(db_dest),
+                'size_bytes': os.path.getsize(db_dest),
+            },
+            'tables': tables,
+        }
+
+        if include_raw:
+            raw_dir = os.path.join(output_dir, 'raw')
+            os.makedirs(raw_dir, exist_ok=True)
+            raw_files = []
+            for source_file in sorted({r[2] for r in rows if r[2]}):
+                src = os.path.join(self.data_dir, source_file)
+                if not os.path.exists(src):
+                    if self.verbose:
+                        print(f'  Skipping raw file (not found): {source_file}')
+                    continue
+                dest = os.path.join(raw_dir, source_file)
+                shutil.copy2(src, dest)
+                raw_files.append({'filename': source_file, 'sha256': self._checksum(dest)})
+            manifest['raw_files'] = raw_files
+
+        manifest_path = os.path.join(output_dir, 'manifest.json')
+        with open(manifest_path, 'w') as f:
+            json.dump(manifest, f, indent=2)
+
+        if self.verbose:
+            print(f'Archive written to {output_dir}')
+            print(f'  Database : {db_filename} ({manifest["database"]["size_bytes"]:,} bytes)')
+            print(f'  Tables   : {len(tables)} entries')
+            if include_raw:
+                print(f'  Raw files: {len(manifest["raw_files"])}')
+
+        return manifest_path
 
     # ── Private: loading orchestration ───────────────────────────────────────
 
@@ -494,7 +583,7 @@ class MaudeDatabase:
                 FROM raw
             """
         else:
-            # text/problems: no date column that needs parsing.
+            # text/problem: no date column that needs parsing.
             select_sql = f"""
                 SELECT * FROM read_csv('{fp}', {self._CSV_OPTS})
             """
@@ -581,7 +670,7 @@ class MaudeDatabase:
 
         fp = filepath.replace("'", "''")
 
-        if table == 'problems':
+        if table == 'problem':
             # foidevproblem has no header row — name columns explicitly so DuckDB
             # doesn't fall back to column0/column1/column2 naming.
             # The file has shipped with 2 or 3 columns depending on the release year.
@@ -602,13 +691,21 @@ class MaudeDatabase:
             """
             if self._table_exists(table):
                 # Migrate column names if db was created before explicit-naming fix.
-                existing = {r[0] for r in self.conn.execute("DESCRIBE problems").fetchall()}
+                existing = {r[0] for r in self.conn.execute("DESCRIBE problem").fetchall()}
                 if 'column0' in existing and 'MDR_REPORT_KEY' not in existing:
                     for i, name in enumerate(['MDR_REPORT_KEY', 'DEVICE_PROBLEM_CODE', 'DATE_ADDED_FLAG']):
                         if f'column{i}' in existing:
-                            self.conn.execute(f'ALTER TABLE problems RENAME COLUMN "column{i}" TO "{name}"')
-                self.conn.execute(f"DELETE FROM {table}")
-                self.conn.execute(f"INSERT INTO {table} BY NAME {select_sql}")
+                            self.conn.execute(f'ALTER TABLE problem RENAME COLUMN "column{i}" TO "{name}"')
+                if not append:
+                    self.conn.execute(f"DELETE FROM {table}")
+                    self.conn.execute(f"INSERT INTO {table} BY NAME {select_sql}")
+                else:
+                    # foidevproblem.zip is a full dump (all years), not current-year-only,
+                    # so a plain append would create duplicates. Only insert new rows.
+                    self.conn.execute(f"""
+                        INSERT INTO {table} BY NAME
+                        SELECT * FROM ({select_sql}) EXCEPT SELECT * FROM {table}
+                    """)
             else:
                 self.conn.execute(f"CREATE TABLE {table} AS {select_sql}")
         else:
@@ -655,7 +752,7 @@ class MaudeDatabase:
             ('device', 'DEVICE_REPORT_PRODUCT_CODE'),
             ('text', 'MDR_REPORT_KEY'),
             ('patient', 'MDR_REPORT_KEY'),
-            ('problems', 'MDR_REPORT_KEY'),
+            ('problem', 'MDR_REPORT_KEY'),
         ]:
             if self._table_exists(table):
                 idx = f"idx_{table}_{col.lower()}"
@@ -723,10 +820,6 @@ class MaudeDatabase:
         prefix = meta['file_prefix']
         current_year = datetime.now().year
 
-        if meta['pattern_type'] == 'single':
-            filename = f"{prefix}.zip"
-            return f"{FDA_BASE_URL}/{filename}", filename
-
         if year == current_year:
             filename = f"{meta['current_year_prefix']}.zip"
             return f"{FDA_BASE_URL}/{filename}", filename
@@ -737,16 +830,17 @@ class MaudeDatabase:
             return f"{FDA_BASE_URL}/{filename}", filename
 
         # Cumulative: FDA releases thru{prev_year} files; probe for the latest available.
+        sep = meta.get('thru_separator', '')
         for offset in [1, 2, 3]:
             thru_year = current_year - offset
-            filename = f"{prefix}thru{thru_year}.zip"
+            filename = f"{prefix}{sep}thru{thru_year}.zip"
             url = f"{FDA_BASE_URL}/{filename}"
             if self._url_exists(url):
                 if offset > 1 and self.verbose:
-                    print(f'  Note: using {filename} (expected thru{current_year - 1} not available)')
+                    print(f'  Note: using {filename} (expected {prefix}{sep}thru{current_year - 1} not available)')
                 return url, filename
 
-        filename = f"{prefix}thru{current_year - 1}.zip"
+        filename = f"{prefix}{sep}thru{current_year - 1}.zip"
         return f"{FDA_BASE_URL}/{filename}", filename
 
     def _url_exists(self, url):
@@ -776,27 +870,23 @@ class MaudeDatabase:
 
         candidates = []
 
-        if meta['pattern_type'] == 'single':
-            candidates += [f"{prefix}.txt", f"{prefix.upper()}.txt"]
-        elif year == current_year:
+        if year == current_year:
             cp = meta['current_year_prefix']
             candidates += [f"{cp}.txt", f"{cp.upper()}.txt"]
 
-        if meta['pattern_type'] in ('yearly', 'single'):
-            if meta['pattern_type'] == 'yearly':
-                if table == 'device':
-                    candidates += [f"device{year}.txt", f"DEVICE{year}.txt"]
-                else:
-                    candidates += [f"{prefix}{year}.txt", f"{prefix.upper()}{year}.txt"]
-            # 'single' candidates already added above; nothing more to add here.
-        else:
+        if meta['pattern_type'] == 'yearly':
+            if table == 'device':
+                candidates += [f"device{year}.txt", f"DEVICE{year}.txt"]
+            else:
+                candidates += [f"{prefix}{year}.txt", f"{prefix.upper()}{year}.txt"]
+        elif meta['pattern_type'] == 'cumulative':
             # Cumulative: check for thru files from most recent backwards.
+            sep = meta.get('thru_separator', '')
             for offset in [1, 2, 3]:
                 thru_year = current_year - offset
                 candidates += [
-                    f"{prefix}thru{thru_year}.txt",
-                    f"{prefix.upper()}thru{thru_year}.txt",
-                    f"{prefix.upper()}THRU{thru_year}.txt",
+                    f"{prefix}{sep}thru{thru_year}.txt",
+                    f"{prefix.upper()}{sep}thru{thru_year}.txt",
                 ]
             # Fallback: any file matching the cumulative pattern.
             for fn in sorted(files):
@@ -842,7 +932,7 @@ class MaudeDatabase:
         )
 
     def _checksum(self, filepath):
-        h = hashlib.md5()
+        h = hashlib.sha256()
         with open(filepath, 'rb') as f:
             for chunk in iter(lambda: f.read(65536), b''):
                 h.update(chunk)

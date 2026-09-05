@@ -43,10 +43,12 @@ TABLE_METADATA = {
             'All historical data will be downloaded and loaded.'
         ),
     },
-    'problems': {
+    'problem': {
         'file_prefix': 'foidevproblem',
-        'pattern_type': 'single',           # foidevproblem.zip (one file, all years)
-        'start_year': 2019,
-        'description': 'Device problem codes (available from 2019)',
+        'pattern_type': 'cumulative',       # foidevproblem_thru{year}.zip + foidevproblem.zip
+        'current_year_prefix': 'foidevproblem',
+        'thru_separator': '_',              # filename: foidevproblem_thru{year}.zip
+        'start_year': 2000,
+        'description': 'Device problem codes',
     },
 }
