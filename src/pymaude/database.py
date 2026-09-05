@@ -385,16 +385,15 @@ class MaudeDatabase:
                 print(f"  {t:10s}: not loaded")
                 continue
             count = self.conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-            if t in ('master', 'device'):
-                try:
-                    yr = self.conn.execute(
-                        f"SELECT MIN(year(DATE_RECEIVED)), MAX(year(DATE_RECEIVED)) FROM {t}"
-                    ).fetchone()
-                    print(f"  {t:10s}: {count:>10,} rows  ({yr[0]}–{yr[1]})")
-                    continue
-                except Exception:
-                    pass
-            print(f"  {t:10s}: {count:>10,} rows")
+            # Years the table *should* cover, per _load_metadata, rather than
+            # deriving from the raw data — real MAUDE files have malformed
+            # dates (e.g. a placeholder year like 1900) that would otherwise
+            # make this range misleading.
+            years = self._covered_years(t)
+            if years:
+                print(f"  {t:10s}: {count:>10,} rows  ({min(years)}–{max(years)})")
+            else:
+                print(f"  {t:10s}: {count:>10,} rows")
 
     def close(self):
         """Close the DuckDB connection."""
@@ -580,7 +579,12 @@ class MaudeDatabase:
                         f"WHERE source_file = '{source_file}' GROUP BY y"
                     ).fetchall()
                     for y, c in covered_rows:
-                        if y is not None:
+                        # Real MAUDE data has malformed dates that parse to
+                        # implausible years (e.g. 1900) — _validate() clips
+                        # every future request to start_year..current_year, so
+                        # recording anything outside that range here would make
+                        # the guard rail permanently unsatisfiable.
+                        if y is not None and meta['start_year'] <= y <= current_year:
                             self._record_load(table, y, source_file, cksum, c)
                 else:
                     # No date column to verify against (patient, problem) — the
@@ -732,11 +736,22 @@ class MaudeDatabase:
                     SELECT *, '{source_file}' AS source_file FROM ({raw_select_sql})
                 """)
             else:
+                # A true duplicate must match on every column, DATE_RECEIVED
+                # included — so a current-year file's row can only collide
+                # with rows already tagged as this year. Scoping the EXCEPT's
+                # "existing" side this way avoids hashing/scanning the entire
+                # (potentially tens-of-millions-of-wide-rows) table just to
+                # dedupe a handful of current-year rows, which can otherwise
+                # blow past memory_limit and exhaust temp disk space.
+                existing_scope = (
+                    f' WHERE year("{date_column}") = {datetime.now().year}'
+                    if date_column else ''
+                )
                 self.conn.execute(f"""
                     WITH truly_new AS (
                         SELECT * FROM ({raw_select_sql})
                         EXCEPT
-                        SELECT * EXCLUDE (source_file) FROM {table}
+                        SELECT * EXCLUDE (source_file) FROM {table}{existing_scope}
                     )
                     INSERT INTO {table} BY NAME
                     SELECT *, '{source_file}' AS source_file FROM truly_new
