@@ -27,10 +27,6 @@ import requests
 
 from .metadata import TABLE_METADATA, FDA_BASE_URL
 
-# Sentinel year used for tables without a date column (patient).
-# Stored in _load_metadata to indicate "all years loaded from this file".
-_ALL_YEARS = 0
-
 
 class MaudeDatabase:
     """
@@ -69,7 +65,7 @@ class MaudeDatabase:
     # ── Public: data management ───────────────────────────────────────────────
 
     def add_years(self, years, tables=None, download=False,
-                  force_download=False, force_reload=False):
+                  force_download=False, force_reload=False, force_partial=False):
         """
         Load MAUDE data for the specified years into the database.
 
@@ -85,6 +81,12 @@ class MaudeDatabase:
             download: If True, download files from FDA before loading.
             force_download: If True, re-download even if zip exists locally.
             force_reload: If True, reload into DB even if checksum is unchanged.
+            force_partial: Cumulative tables (master, patient, problem) are fully
+                replaced on every reload, so a request that doesn't cover years
+                already loaded for one of them would silently drop those years.
+                That's rejected by default — pass True to proceed anyway. Doesn't
+                apply to yearly tables (device, text), which can't lose data this
+                way since each year is an independent file.
         """
         years_list = self._parse_year_range(years)
         if tables is None:
@@ -97,6 +99,24 @@ class MaudeDatabase:
         years_by_table = defaultdict(list)
         for year, table in valid:
             years_by_table[table].append(year)
+
+        if not force_partial:
+            for table in sorted(years_by_table):
+                meta = TABLE_METADATA[table]
+                if meta['pattern_type'] != 'cumulative':
+                    continue
+                years_for_table = sorted(years_by_table[table])
+                implied = self._implied_years(table, years_for_table, meta)
+                missing = self._covered_years(table) - implied
+                if missing:
+                    raise ValueError(
+                        f"add_years({years_for_table}, tables=['{table}']) would not "
+                        f"cover years {sorted(missing)} that '{table}' already has "
+                        f"loaded. '{table}' is fully replaced on every reload, so this "
+                        f"would silently drop that data. Call update() to refresh "
+                        f"everything '{table}' has, or pass force_partial=True to "
+                        f"proceed and accept the loss."
+                    )
 
         for table in sorted(years_by_table):
             meta = TABLE_METADATA[table]
@@ -417,7 +437,7 @@ class MaudeDatabase:
         tables = [
             {
                 'table': r[0],
-                'year': r[1] if r[1] != _ALL_YEARS else None,
+                'year': r[1],
                 'source_file': r[2],
                 'sha256': r[3],
                 'row_count': r[4],
@@ -487,63 +507,91 @@ class MaudeDatabase:
             self._record_load(table, year, os.path.basename(fp), cksum, rows)
 
     def _process_cumulative_table(self, table, years, meta, download, force_download, force_reload):
-        # Prior years live in mdrfoithru{N}.zip; current year lives in mdrfoi.zip.
-        # Using max(years) to pick one file fails when the range spans both — the
-        # current-year file has no prior-year rows, so they'd be silently wiped.
+        """
+        Load a cumulative table (master, patient, problem) from its two source
+        files: a historical "thru{N}" file and the small current-year file.
+
+        There's no way to know which specific rows inside a changed cumulative
+        file were actually modified — FDA ships one monolithic file per group,
+        not a diff. So rather than trying to scope a delete, any checksum
+        change in either file triggers a full delete-and-reload of the whole
+        table from both currently available source files.
+        """
         current_year = datetime.now().year
         prior_years = sorted(y for y in years if y < current_year)
         curr_years  = sorted(y for y in years if y == current_year)
+        date_column = meta.get('date_column')
 
-        # True on the first group; used by patient to decide replace-vs-append.
-        first_group = True
+        groups = []
+        if prior_years:
+            groups.append((max(prior_years), False))
+        if curr_years:
+            groups.append((current_year, True))
+        if not groups:
+            return
 
-        for group, anchor in [
-            (prior_years, max(prior_years) if prior_years else None),
-            (curr_years,  current_year      if curr_years  else None),
-        ]:
-            if not group:
-                continue
-
+        fetched = []
+        for anchor, is_current in groups:
             if download:
                 self._download_file(table, anchor, force_download)
             fp = self._make_file_path(table, anchor)
             if not fp:
                 if self.verbose:
-                    label = 'current year' if anchor == current_year else f'thru {anchor}'
+                    label = 'current year' if is_current else f'thru {anchor}'
                     print(f'  Skipping {table} ({label}): file not found in {self.data_dir}')
                 continue
+            fetched.append((anchor, is_current, fp, self._checksum(fp)))
 
-            cksum = self._checksum(fp)
+        if len(fetched) != len(groups):
+            # Can't safely rebuild the whole table without every expected
+            # source file — a partial reload could permanently drop the group
+            # we couldn't fetch, since there's no scoped delete to fall back on.
+            if self.verbose:
+                print(f'  Skipping {table}: not all source files available, leaving table untouched')
+            return
 
-            if 'date_column' not in meta:
-                # Patient: no date column — load the full file.
-                # Second group (current year) appends rather than replacing so
-                # the prior-year rows loaded in the first group are preserved.
-                append = not first_group
-                if not force_reload and self._get_stored_checksum(table, _ALL_YEARS) == cksum:
-                    if self.verbose:
-                        print(f'  {table}: up to date, skipping')
+        any_changed = force_reload or any(
+            self._get_stored_checksum(table, current_year if is_current else anchor) != cksum
+            for anchor, is_current, fp, cksum in fetched
+        )
+        if not any_changed:
+            if self.verbose:
+                print(f'  {table}: up to date, skipping')
+            return
+
+        if self._table_exists(table):
+            self.conn.execute(f"DELETE FROM {table}")
+        self.conn.execute("DELETE FROM _load_metadata WHERE table_name = ?", [table])
+
+        for i, (anchor, is_current, fp, cksum) in enumerate(fetched):
+            rows = self._load_all(table, fp, date_column=date_column, dedup=(i > 0))
+            source_file = os.path.basename(fp)
+            if is_current:
+                self._record_load(table, current_year, source_file, cksum, rows)
+            else:
+                if date_column:
+                    # Record the years this file *actually* contains, rather
+                    # than assuming it only covers up to the requested anchor —
+                    # thru-file selection chases whatever's latest-available
+                    # regardless of the specific year requested, so the real
+                    # content can cover more than that (see _implied_years).
+                    covered_rows = self.conn.execute(
+                        f'SELECT year("{date_column}") AS y, COUNT(*) FROM {table} '
+                        f"WHERE source_file = '{source_file}' GROUP BY y"
+                    ).fetchall()
+                    for y, c in covered_rows:
+                        if y is not None:
+                            self._record_load(table, y, source_file, cksum, c)
                 else:
-                    rows = self._load_all(table, fp, append=append)
-                    self._record_load(table, _ALL_YEARS, os.path.basename(fp), cksum, rows)
-                first_group = False
-                continue
+                    # No date column to verify against (patient, problem) — the
+                    # same latest-available fetch behavior applies, so assume
+                    # the same full range _implied_years does.
+                    for y in range(meta['start_year'], current_year):
+                        self._record_load(table, y, source_file, cksum, rows)
 
-            # Master: filter to requested years from this file, one pass.
-            to_load = [
-                y for y in group
-                if force_reload or self._get_stored_checksum(table, y) != cksum
-            ]
-            if not to_load:
-                if self.verbose:
-                    print(f'  {table}: all requested years up to date, skipping')
-                first_group = False
-                continue
-
-            year_counts = self._load_cumulative(table, to_load, fp, meta)
-            for year, rows in year_counts.items():
-                self._record_load(table, year, os.path.basename(fp), cksum, rows)
-            first_group = False
+        if self.verbose:
+            total = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            print(f'  {table}: {total:,} total rows')
 
     # ── Private: DuckDB loading ───────────────────────────────────────────────
 
@@ -568,6 +616,7 @@ class MaudeDatabase:
             print(f'  Loading {table} {year}...')
 
         fp = filepath.replace("'", "''")
+        source_file = os.path.basename(filepath).replace("'", "''")
 
         if table == 'device':
             # Parse DATE_RECEIVED and add DEVICE_NAME_CONCAT in one CTE pass.
@@ -579,96 +628,62 @@ class MaudeDatabase:
                 SELECT * REPLACE ({date_expr} AS DATE_RECEIVED),
                     upper(coalesce(BRAND_NAME, '') || '|' ||
                           coalesce(GENERIC_NAME, '') || '|' ||
-                          coalesce(MANUFACTURER_D_NAME, '')) AS DEVICE_NAME_CONCAT
+                          coalesce(MANUFACTURER_D_NAME, '')) AS DEVICE_NAME_CONCAT,
+                    '{source_file}' AS source_file
                 FROM raw
             """
         else:
             # text/problem: no date column that needs parsing.
             select_sql = f"""
-                SELECT * FROM read_csv('{fp}', {self._CSV_OPTS})
+                SELECT *, '{source_file}' AS source_file
+                FROM read_csv('{fp}', {self._CSV_OPTS})
             """
 
         if self._table_exists(table):
-            try:
-                self.conn.execute(
-                    f"DELETE FROM {table} WHERE year(DATE_RECEIVED) = {year}"
-                )
-            except Exception:
-                pass
+            # Scope the delete to exactly this file's prior contribution.
+            # Filename <-> year is fixed for life for yearly tables
+            # (device2020.zip always means 2020, never anything else), so this
+            # is precise and doesn't depend on a per-row date — unlike text,
+            # which has no DATE_RECEIVED column at all, or device, where a
+            # row's date can fail to parse and never match a year() filter.
+            self.conn.execute(
+                f"DELETE FROM {table} WHERE source_file = '{source_file}'"
+            )
             self._ensure_new_columns(table, filepath)
             self.conn.execute(f"INSERT INTO {table} BY NAME {select_sql}")
         else:
             self.conn.execute(f"CREATE TABLE {table} AS {select_sql}")
 
-        try:
-            rows = self.conn.execute(
-                f"SELECT COUNT(*) FROM {table} WHERE year(DATE_RECEIVED) = {year}"
-            ).fetchone()[0]
-        except Exception:
-            rows = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        rows = self.conn.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE source_file = '{source_file}'"
+        ).fetchone()[0]
 
         if self.verbose:
             print(f'    {rows:,} rows')
         return rows
 
-    def _load_cumulative(self, table, years, filepath, meta):
+    def _load_all(self, table, filepath, date_column=None, dedup=False):
         """
-        Load specific years from a cumulative file in one pass.
-        Returns dict {year: row_count}.
-        """
-        if self.verbose:
-            span = f"{min(years)}–{max(years)}" if len(years) > 1 else str(years[0])
-            print(f'  Loading {table} ({span}) from {os.path.basename(filepath)}...')
+        Load a cumulative file's full content into table, creating it if it
+        doesn't exist yet. Used for master, patient, problem — the caller
+        (_process_cumulative_table) is responsible for wiping the table first
+        when a fresh load is needed; this just inserts/creates.
 
-        fp = filepath.replace("'", "''")
-        date_col = meta['date_column']
-        min_year, max_year = min(years), max(years)
-        date_expr = self._parse_date_expr(f'"{date_col}"')
-
-        if self._table_exists(table):
-            self.conn.execute(
-                f'DELETE FROM {table} WHERE year("{date_col}") BETWEEN {min_year} AND {max_year}'
-            )
-
-        select_sql = f"""
-            WITH raw AS (
-                SELECT * FROM read_csv('{fp}', {self._CSV_OPTS})
-            ),
-            parsed AS (
-                SELECT * REPLACE ({date_expr} AS "{date_col}")
-                FROM raw
-            )
-            SELECT * FROM parsed
-            WHERE year("{date_col}") BETWEEN {min_year} AND {max_year}
-        """
-
-        if self._table_exists(table):
-            self._ensure_new_columns(table, filepath)
-            self.conn.execute(f"INSERT INTO {table} BY NAME {select_sql}")
-        else:
-            self.conn.execute(f"CREATE TABLE {table} AS {select_sql}")
-
-        year_counts = {}
-        for year in years:
-            c = self.conn.execute(
-                f'SELECT COUNT(*) FROM {table} WHERE year("{date_col}") = {year}'
-            ).fetchone()[0]
-            year_counts[year] = c
-
-        if self.verbose:
-            print(f'    {sum(year_counts.values()):,} total rows')
-        return year_counts
-
-    def _load_all(self, table, filepath, append=False):
-        """Load entire file into table (no year filtering). Used for patient.
-
-        append=True skips the DELETE so a second file's rows are merged in
-        alongside an already-loaded first file (e.g. patientthru + patient).
+        date_column: if given, that column is parsed from VARCHAR to DATE
+        (master has one; patient/problem don't).
+        dedup: the current-year file's rows can overlap with what the thru-file
+        already loaded — pass True (for every group after the first in a given
+        table-processing pass) to only insert rows not already present.
+        Compared on the data columns only (EXCLUDE source_file), since a row
+        that's identical except for which file it came from should still count
+        as a duplicate; source_file is attached only after dedup so it doesn't
+        interfere with the comparison.
         """
         if self.verbose:
             print(f'  Loading {table} ({os.path.basename(filepath)})...')
 
         fp = filepath.replace("'", "''")
+        source_file = os.path.basename(filepath).replace("'", "''")
 
         if table == 'problem':
             # foidevproblem has no header row — name columns explicitly so DuckDB
@@ -685,7 +700,7 @@ class MaudeDatabase:
             else:
                 _col_select = ("column0 AS MDR_REPORT_KEY, "
                                "column1 AS DEVICE_PROBLEM_CODE")
-            select_sql = f"""
+            raw_select_sql = f"""
                 SELECT {_col_select}
                 FROM read_csv('{fp}', {_opts})
             """
@@ -696,31 +711,45 @@ class MaudeDatabase:
                     for i, name in enumerate(['MDR_REPORT_KEY', 'DEVICE_PROBLEM_CODE', 'DATE_ADDED_FLAG']):
                         if f'column{i}' in existing:
                             self.conn.execute(f'ALTER TABLE problem RENAME COLUMN "column{i}" TO "{name}"')
-                if not append:
-                    self.conn.execute(f"DELETE FROM {table}")
-                    self.conn.execute(f"INSERT INTO {table} BY NAME {select_sql}")
-                else:
-                    # foidevproblem.zip is a full dump (all years), not current-year-only,
-                    # so a plain append would create duplicates. Only insert new rows.
-                    self.conn.execute(f"""
-                        INSERT INTO {table} BY NAME
-                        SELECT * FROM ({select_sql}) EXCEPT SELECT * FROM {table}
-                    """)
-            else:
-                self.conn.execute(f"CREATE TABLE {table} AS {select_sql}")
         else:
-            select_sql = f"""
-                SELECT * FROM read_csv('{fp}', {self._CSV_OPTS})
-            """
-            if self._table_exists(table):
-                if not append:
-                    self.conn.execute(f"DELETE FROM {table}")
-                self._ensure_new_columns(table, filepath)
-                self.conn.execute(f"INSERT INTO {table} BY NAME {select_sql}")
+            if date_column:
+                date_expr = self._parse_date_expr(f'"{date_column}"')
+                raw_select_sql = f"""
+                    SELECT * REPLACE ({date_expr} AS "{date_column}")
+                    FROM read_csv('{fp}', {self._CSV_OPTS})
+                """
             else:
-                self.conn.execute(f"CREATE TABLE {table} AS {select_sql}")
+                raw_select_sql = f"""
+                    SELECT * FROM read_csv('{fp}', {self._CSV_OPTS})
+                """
+            if self._table_exists(table):
+                self._ensure_new_columns(table, filepath)
 
-        rows = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        if self._table_exists(table):
+            if not dedup:
+                self.conn.execute(f"""
+                    INSERT INTO {table} BY NAME
+                    SELECT *, '{source_file}' AS source_file FROM ({raw_select_sql})
+                """)
+            else:
+                self.conn.execute(f"""
+                    WITH truly_new AS (
+                        SELECT * FROM ({raw_select_sql})
+                        EXCEPT
+                        SELECT * EXCLUDE (source_file) FROM {table}
+                    )
+                    INSERT INTO {table} BY NAME
+                    SELECT *, '{source_file}' AS source_file FROM truly_new
+                """)
+        else:
+            self.conn.execute(f"""
+                CREATE TABLE {table} AS
+                SELECT *, '{source_file}' AS source_file FROM ({raw_select_sql})
+            """)
+
+        rows = self.conn.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE source_file = '{source_file}'"
+        ).fetchone()[0]
         if self.verbose:
             print(f'    {rows:,} rows')
         return rows
@@ -948,8 +977,7 @@ class MaudeDatabase:
     def _get_years_in_db(self):
         try:
             rows = self.conn.execute(
-                "SELECT DISTINCT year FROM _load_metadata "
-                "WHERE table_name = 'master' AND year != 0"
+                "SELECT DISTINCT year FROM _load_metadata"
             ).fetchall()
             return sorted(r[0] for r in rows)
         except Exception:
@@ -1004,6 +1032,41 @@ class MaudeDatabase:
                     continue
                 valid.append((year, table))
         return valid
+
+    def _covered_years(self, table):
+        """Years currently recorded as loaded for `table`, from _load_metadata."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT year FROM _load_metadata WHERE table_name = ?", [table]
+        ).fetchall()
+        return {r[0] for r in rows}
+
+    def _implied_years(self, table, years_for_table, meta):
+        """
+        Years `table` would end up covering after loading `years_for_table`.
+
+        Yearly tables (device, text): each year is an independent file, so this
+        is just the requested years themselves.
+
+        Cumulative tables (master, patient, problem): the "thru{N}" file fetch
+        (_construct_url/_make_file_path) always resolves to whichever historical
+        dump is actually latest-available, essentially ignoring the specific
+        prior year requested — so requesting any prior year is treated as
+        implying coverage through last year, not just up to the requested year.
+        The current year, if requested, comes from a separate, current-year-only
+        file and only implies itself.
+        """
+        if meta['pattern_type'] == 'yearly':
+            return set(years_for_table)
+
+        current_year = datetime.now().year
+        prior = [y for y in years_for_table if y < current_year]
+        curr = [y for y in years_for_table if y == current_year]
+        implied = set()
+        if prior:
+            implied |= set(range(meta['start_year'], current_year))
+        if curr:
+            implied.add(current_year)
+        return implied
 
     # ── Private: search helpers ───────────────────────────────────────────────
 

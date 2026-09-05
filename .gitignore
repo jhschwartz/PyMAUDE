@@ -5,7 +5,9 @@ maude_archive/
 *.yaml
 *.DS_Store 
 *.duckdb
+*.wal
 *.pyc
 */__pycache__
 */*.egg-info/
 *.zip
+dev_local/
