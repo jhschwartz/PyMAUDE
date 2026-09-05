@@ -1,5 +1,6 @@
 venv/
 maude_data/
+maude_archive/
 *.tmp
 *.yaml
 *.DS_Store 
@@ -7,3 +8,4 @@ maude_data/
 *.pyc
 */__pycache__
 */*.egg-info/
+*.zip
