@@ -102,6 +102,62 @@ class TestAddYears:
         assert len(meta) >= 1
         assert meta['checksum'].iloc[0] is not None
 
+    def test_patient_problem_recorded_once_not_per_year(self, db):
+        """patient/problem have no date_column, so a thru-file load must be
+        recorded once (under the _ALL_YEARS sentinel), not once per calendar
+        year — recording it per-year previously multiplied the recorded row
+        count by ~25x and corrupted archive()'s manifest."""
+        for table in ('patient', 'problem'):
+            meta = db.query(
+                f"SELECT year, row_count FROM _load_metadata WHERE table_name = '{table}'"
+            )
+            actual = db.query(f"SELECT COUNT(*) FROM {table}").iloc[0, 0]
+            assert len(meta) == 1
+            assert meta['year'].iloc[0] == MaudeDatabase._ALL_YEARS
+            assert meta['row_count'].iloc[0] == actual
+
+    def test_problem_dedup_metadata_accurate(self, tmp_path, data_dir):
+        """After loading both the thru-file and the current-year increment,
+        recorded row counts (sentinel entry + current-year entry) should sum
+        to exactly the table's actual row count."""
+        from datetime import datetime
+        db = MaudeDatabase(str(tmp_path / 'dedup2.duckdb'), data_dir=data_dir, verbose=False)
+        current_year = datetime.now().year
+        db.add_years([2020, current_year], tables=['problem'])
+        entries = db.query(
+            "SELECT year, row_count FROM _load_metadata WHERE table_name = 'problem'"
+        )
+        actual = db.query("SELECT COUNT(*) FROM problem").iloc[0, 0]
+        assert len(entries) == 2
+        assert entries['row_count'].sum() == actual == 4
+        db.close()
+
+    def test_recorded_matches_actual_with_out_of_range_year(self, tmp_path):
+        """A stray pre-start_year date in a cumulative source file (real MAUDE
+        data has these, e.g. a report dated 1900) must still be recorded in
+        _load_metadata, since _load_all loads the whole file unfiltered — the
+        row physically ends up in the table either way."""
+        d = tmp_path / 'maude_data'
+        d.mkdir()
+        master_csv = (
+            "MDR_REPORT_KEY|EVENT_KEY|DATE_RECEIVED|EVENT_TYPE|MANUFACTURER_G1_NAME|PMA_PMN_NUM\n"
+            "1001|2001|01/15/2020|D|MEDTRONIC|P180037\n"
+            "1005|2005|09/23/1900|D|OLDCO|K999999\n"
+        )
+        (d / 'mdrfoithru2020.txt').write_text(master_csv)
+        db = MaudeDatabase(str(tmp_path / 'stale.duckdb'), data_dir=str(d), verbose=False)
+        db.add_years(2020, tables=['master'])
+        recorded = db.query(
+            "SELECT sum(row_count) FROM _load_metadata WHERE table_name = 'master'"
+        ).iloc[0, 0]
+        actual = db.query("SELECT COUNT(*) FROM master").iloc[0, 0]
+        assert recorded == actual == 2
+        years = set(db.query(
+            "SELECT year FROM _load_metadata WHERE table_name = 'master'"
+        )['year'])
+        assert years == {1900, 2020}
+        db.close()
+
 
 class TestQueryDevice:
     def test_brand_name(self, db):
@@ -211,12 +267,118 @@ class TestEnrich:
         assert len(enriched) == 0
 
 
+class TestFilterByOutcome:
+    def test_matches_single_code(self, db):
+        results = db.query_device(product_code='NIQ')  # 1001 (D), 1002 (L)
+        enriched = db.enrich_with_patient_data(results)
+        deaths = db.filter_by_outcome(enriched, 'D')
+        assert set(deaths['MDR_REPORT_KEY'].astype(str)) == {'1001'}
+
+    def test_matches_within_multi_code_field(self, db):
+        results = db.query_device(product_code='GZC')  # 1004, outcome "H; O"
+        enriched = db.enrich_with_patient_data(results)
+        matched = db.filter_by_outcome(enriched, 'O')
+        assert set(matched['MDR_REPORT_KEY'].astype(str)) == {'1004'}
+
+    def test_list_of_codes_is_or(self, db):
+        results = db.query_device(product_code='NIQ')
+        enriched = db.enrich_with_patient_data(results)
+        matched = db.filter_by_outcome(enriched, ['D', 'L'])
+        assert set(matched['MDR_REPORT_KEY'].astype(str)) == {'1001', '1002'}
+
+    def test_missing_column_raises(self, db):
+        results = db.query_device(product_code='NIQ')
+        with pytest.raises(ValueError, match='SEQUENCE_NUMBER_OUTCOME'):
+            db.filter_by_outcome(results, 'D')
+
+
+class TestFilterByPatient:
+    def test_age_min(self, db):
+        results = db.query_device(product_code='NIQ')  # 1001 (56 YR), 1002 (34 YR)
+        enriched = db.enrich_with_patient_data(results)
+        older = db.filter_by_patient(enriched, age_min=50)
+        assert set(older['MDR_REPORT_KEY'].astype(str)) == {'1001'}
+
+    def test_age_max(self, db):
+        results = db.query_device(product_code='NIQ')
+        enriched = db.enrich_with_patient_data(results)
+        younger = db.filter_by_patient(enriched, age_max=40)
+        assert set(younger['MDR_REPORT_KEY'].astype(str)) == {'1002'}
+
+    def test_sex_case_insensitive(self, db):
+        results = db.query_device(product_code='NIQ')
+        enriched = db.enrich_with_patient_data(results)
+        males = db.filter_by_patient(enriched, sex='male')
+        assert set(males['MDR_REPORT_KEY'].astype(str)) == {'1001'}
+
+    def test_unparseable_age_excluded(self, db):
+        results = db.query_device(product_code='OCA')  # 1003, PATIENT_AGE='NA'
+        enriched = db.enrich_with_patient_data(results)
+        filtered = db.filter_by_patient(enriched, age_min=0)
+        assert len(filtered) == 0
+
+    def test_missing_columns_raises(self, db):
+        results = db.query_device(product_code='NIQ')
+        with pytest.raises(ValueError, match='PATIENT_AGE'):
+            db.filter_by_patient(results, age_min=0)
+
+
+class TestFilterByProblem:
+    def test_matches_code(self, db):
+        results = db.query_device(product_code='NIQ')  # 1001, 1002
+        enriched = db.enrich_with_problems(results)
+        filtered = db.filter_by_problem(enriched, '1546')
+        assert set(filtered['MDR_REPORT_KEY'].astype(str)) == {'1001'}
+
+    def test_list_of_codes_is_or(self, db):
+        results = db.search_by_device_names('stent')  # 1001, 1002, 1003
+        enriched = db.enrich_with_problems(results)
+        filtered = db.filter_by_problem(enriched, ['1546', '2993'])
+        assert set(filtered['MDR_REPORT_KEY'].astype(str)) == {'1001', '1002', '1003'}
+
+    def test_missing_column_raises(self, db):
+        results = db.query_device(product_code='NIQ')
+        with pytest.raises(ValueError, match='DEVICE_PROBLEM_CODE'):
+            db.filter_by_problem(results, '1546')
+
+
+class TestFilterByNarrative:
+    def test_matches_term(self, db):
+        results = db.query_device(product_code='NIQ')  # 1001, 1002
+        filtered = db.filter_by_narrative(results, 'migration')
+        assert set(filtered['MDR_REPORT_KEY'].astype(str)) == {'1001'}
+
+    def test_case_insensitive(self, db):
+        results = db.query_device(product_code='NIQ')
+        filtered = db.filter_by_narrative(results, 'MIGRATION')
+        assert set(filtered['MDR_REPORT_KEY'].astype(str)) == {'1001'}
+
+    def test_no_match_returns_empty(self, db):
+        results = db.query_device(product_code='NIQ')
+        filtered = db.filter_by_narrative(results, 'nonexistent_term_xyz')
+        assert len(filtered) == 0
+
+    def test_empty_input(self, db):
+        results = db.query_device(brand_name='NONEXISTENT_XYZ')
+        filtered = db.filter_by_narrative(results, 'anything')
+        assert len(filtered) == 0
+
+
 class TestInfo:
     def test_info_runs(self, db, capsys):
         db.info()
         captured = capsys.readouterr()
         assert 'master' in captured.out
         assert 'device' in captured.out
+
+    def test_info_does_not_show_sentinel_year(self, db, capsys):
+        """patient/problem are recorded under the internal _ALL_YEARS=0
+        sentinel; info() must not leak that as a displayed year."""
+        db.info()
+        captured = capsys.readouterr()
+        patient_line = next(l for l in captured.out.splitlines() if l.strip().startswith('patient'))
+        assert 'all years' in patient_line
+        assert '(0' not in patient_line
 
 
 class TestYearParsing:
