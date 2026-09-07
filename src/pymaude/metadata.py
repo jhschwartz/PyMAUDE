@@ -11,7 +11,7 @@ TABLE_METADATA = {
         'file_prefix': 'mdrfoi',
         'pattern_type': 'cumulative',       # mdrfoithru{year}.zip
         'current_year_prefix': 'mdrfoi',    # mdrfoi.zip for current year
-        'start_year': 2000,
+        'start_year': 1991,
         'date_column': 'DATE_RECEIVED',
         'description': 'Master records (adverse event reports)',
     },
@@ -19,7 +19,9 @@ TABLE_METADATA = {
         'file_prefix': 'foidev',
         'pattern_type': 'yearly',           # device{year}.zip (special naming)
         'current_year_prefix': 'device',    # device.zip for current year
-        'start_year': 2000,
+        'start_year': 1991,
+        'legacy_cumulative_thru': 1997,     # 1991-1997 ship as one foidevthru1997.zip;
+                                             # 1998-1999 as foidev{year}.zip; 2000+ as device{year}.zip
         'date_column': 'DATE_RECEIVED',
         'description': 'Device information',
     },
@@ -27,14 +29,14 @@ TABLE_METADATA = {
         'file_prefix': 'foitext',
         'pattern_type': 'yearly',           # foitext{year}.zip
         'current_year_prefix': 'foitext',
-        'start_year': 2000,
+        'start_year': 1996,                 # foitextthru1995.zip (pre-1996, cumulative) not yet supported
         'description': 'Event narrative text (FOI_TEXT)',
     },
     'patient': {
         'file_prefix': 'patient',
         'pattern_type': 'cumulative',       # patientthru{year}.zip
         'current_year_prefix': 'patient',
-        'start_year': 2000,
+        'start_year': 1991,
         # No date_column: patient table has no date field; joins to master via MDR_REPORT_KEY.
         # The entire cumulative file is loaded (no year filtering possible).
         'description': 'Patient demographics and outcomes',

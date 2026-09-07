@@ -653,6 +653,10 @@ class MaudeDatabase:
     # ── Private: loading orchestration ───────────────────────────────────────
 
     def _process_yearly_table(self, table, years, download, force_download, force_reload):
+        legacy_thru = TABLE_METADATA[table].get('legacy_cumulative_thru')
+        legacy_years = [y for y in years if legacy_thru and y <= legacy_thru]
+        years = [y for y in years if not (legacy_thru and y <= legacy_thru)]
+
         for year in years:
             if download:
                 self._download_file(table, year, force_download)
@@ -668,6 +672,45 @@ class MaudeDatabase:
                 continue
             rows = self._load_yearly(table, year, fp)
             self._record_load(table, year, os.path.basename(fp), cksum, rows)
+
+        if legacy_years:
+            self._load_legacy_cumulative(table, legacy_thru, download, force_download, force_reload)
+
+    def _load_legacy_cumulative(self, table, legacy_thru, download, force_download, force_reload):
+        """
+        Some yearly tables (device) shipped their earliest years bundled into
+        one cumulative file instead of one file per year (e.g. device data
+        through 1997 is a single foidevthru1997.zip, not device1991.zip..
+        device1997.zip). Unlike the normal per-year loop, every legacy year
+        resolves to this same file, so it's loaded once here and per-year row
+        counts are recorded via GROUP BY — same approach _process_cumulative_table
+        uses for master/patient/problem.
+        """
+        if download:
+            self._download_file(table, legacy_thru, force_download)
+        fp = self._make_file_path(table, legacy_thru)
+        if not fp:
+            if self.verbose:
+                print(f'  Skipping {table} (thru {legacy_thru}): file not found in {self.data_dir}')
+            return
+
+        cksum = self._checksum(fp)
+        source_file = os.path.basename(fp)
+        if not force_reload and self._get_stored_checksum(table, legacy_thru) == cksum:
+            if self.verbose:
+                print(f'  {table} (thru {legacy_thru}): up to date, skipping')
+            return
+
+        self._load_yearly(table, legacy_thru, fp)
+
+        date_column = TABLE_METADATA[table].get('date_column', 'DATE_RECEIVED')
+        covered_rows = self.conn.execute(
+            f'SELECT year("{date_column}") AS y, COUNT(*) FROM {table} '
+            f"WHERE source_file = ? GROUP BY y", [source_file]
+        ).fetchall()
+        for y, c in covered_rows:
+            if y is not None:
+                self._record_load(table, y, source_file, cksum, c)
 
     def _process_cumulative_table(self, table, years, meta, download, force_download, force_reload):
         """
@@ -1157,6 +1200,12 @@ class MaudeDatabase:
         Yearly tables:  device{year}.zip  /  {prefix}{year}.zip
         Cumulative:     {prefix}thru{N}.zip  (N = most recent available year)
         Current year:   {current_year_prefix}.zip
+
+        Device is a yearly table with two exceptions from its FDA-published
+        history: years up to legacy_cumulative_thru ship as one cumulative
+        {prefix}thru{N}.zip (like foidevthru1997.zip) rather than per-year
+        files, and 1998-1999 use '{prefix}{year}.zip' (foidev1998.zip) instead
+        of the 'device{year}.zip' naming every later year uses.
         """
         if table not in TABLE_METADATA:
             return None, None
@@ -1169,9 +1218,18 @@ class MaudeDatabase:
             filename = f"{meta['current_year_prefix']}.zip"
             return f"{FDA_BASE_URL}/{filename}", filename
 
+        legacy_thru = meta.get('legacy_cumulative_thru')
+        if legacy_thru and year <= legacy_thru:
+            filename = f"{prefix}thru{legacy_thru}.zip"
+            return f"{FDA_BASE_URL}/{filename}", filename
+
         if meta['pattern_type'] == 'yearly':
-            # Device table uses 'device{year}.zip', others use '{prefix}{year}.zip'.
-            filename = f"device{year}.zip" if table == 'device' else f"{prefix}{year}.zip"
+            # Device table uses 'device{year}.zip' from 2000 on, but 'foidev{year}.zip'
+            # (its normal file_prefix) for 1998-1999; others use '{prefix}{year}.zip'.
+            if table == 'device':
+                filename = f"{prefix}{year}.zip" if legacy_thru and year <= legacy_thru + 2 else f"device{year}.zip"
+            else:
+                filename = f"{prefix}{year}.zip"
             return f"{FDA_BASE_URL}/{filename}", filename
 
         # Cumulative: FDA releases thru{prev_year} files; probe for the latest available.
@@ -1219,9 +1277,15 @@ class MaudeDatabase:
             cp = meta['current_year_prefix']
             candidates += [f"{cp}.txt", f"{cp.upper()}.txt"]
 
-        if meta['pattern_type'] == 'yearly':
+        legacy_thru = meta.get('legacy_cumulative_thru')
+        if legacy_thru and year <= legacy_thru:
+            candidates += [f"{prefix}thru{legacy_thru}.txt", f"{prefix.upper()}THRU{legacy_thru}.txt"]
+        elif meta['pattern_type'] == 'yearly':
             if table == 'device':
-                candidates += [f"device{year}.txt", f"DEVICE{year}.txt"]
+                if legacy_thru and year <= legacy_thru + 2:
+                    candidates += [f"{prefix}{year}.txt", f"{prefix.upper()}{year}.txt"]
+                else:
+                    candidates += [f"device{year}.txt", f"DEVICE{year}.txt"]
             else:
                 candidates += [f"{prefix}{year}.txt", f"{prefix.upper()}{year}.txt"]
         elif meta['pattern_type'] == 'cumulative':
@@ -1361,7 +1425,9 @@ class MaudeDatabase:
         Years `table` would end up covering after loading `years_for_table`.
 
         Yearly tables (device, text): each year is an independent file, so this
-        is just the requested years themselves.
+        is just the requested years themselves — except device's legacy years
+        (see legacy_cumulative_thru), which all resolve to one shared file, so
+        requesting any one of them implies the whole legacy range.
 
         Cumulative tables (master, patient, problem): the "thru{N}" file fetch
         (_construct_url/_make_file_path) always resolves to whichever historical
@@ -1372,7 +1438,11 @@ class MaudeDatabase:
         file and only implies itself.
         """
         if meta['pattern_type'] == 'yearly':
-            return set(years_for_table)
+            implied = set(years_for_table)
+            legacy_thru = meta.get('legacy_cumulative_thru')
+            if legacy_thru and any(y <= legacy_thru for y in years_for_table):
+                implied |= set(range(meta['start_year'], legacy_thru + 1))
+            return implied
 
         current_year = datetime.now().year
         prior = [y for y in years_for_table if y < current_year]
