@@ -14,6 +14,7 @@ Usage:
 """
 
 import os
+import re
 import json
 import shutil
 import zipfile
@@ -49,6 +50,9 @@ class MaudeDatabase:
         self.data_dir = data_dir
         self.verbose = verbose
         self._download_cache = set()
+        self._repair_stats = defaultdict(lambda: {
+            'fixed': 0, 'dropped_too_many': 0, 'dropped_unexplained': 0
+        })
 
         os.makedirs(data_dir, exist_ok=True)
         self.conn = duckdb.connect(db_path)
@@ -92,6 +96,10 @@ class MaudeDatabase:
         if tables is None:
             tables = ['master', 'device', 'text', 'patient']
 
+        self._repair_stats = defaultdict(lambda: {
+            'fixed': 0, 'dropped_too_many': 0, 'dropped_unexplained': 0
+        })
+
         valid = self._validate(years_list, tables)
         if not valid:
             return
@@ -107,7 +115,12 @@ class MaudeDatabase:
                     continue
                 years_for_table = sorted(years_by_table[table])
                 implied = self._implied_years(table, years_for_table, meta)
-                missing = self._covered_years(table) - implied
+                # Years below start_year (including the _ALL_YEARS sentinel used
+                # for patient/problem) are always bundled into whatever thru-file
+                # a prior-year request pulls in — they're never separately
+                # droppable, so they'd otherwise trip this guard permanently.
+                covered = {y for y in self._covered_years(table) if y >= meta['start_year']}
+                missing = covered - implied
                 if missing:
                     raise ValueError(
                         f"add_years({years_for_table}, tables=['{table}']) would not "
@@ -132,6 +145,8 @@ class MaudeDatabase:
                 )
 
         self._create_indexes()
+        if self.verbose:
+            self._print_repair_report()
 
     def update(self, download=True, force_download=True):
         """
@@ -372,6 +387,138 @@ class MaudeDatabase:
         return results_df.merge(problems, on='MDR_REPORT_KEY', how='left',
                                 suffixes=('', '_problem'))
 
+    def filter_by_outcome(self, results_df, outcome):
+        """
+        Keep only rows whose SEQUENCE_NUMBER_OUTCOME includes at least one of
+        the given codes.
+
+        Requires enrich_with_patient_data() to have been called first — that's
+        what adds the SEQUENCE_NUMBER_OUTCOME column. A single patient record
+        can carry multiple codes at once (e.g. "H; O"), so this matches on
+        membership in that list rather than exact equality.
+
+        Outcome codes: D=Death, L=Life Threatening, H=Hospitalization,
+        S=Disability, C=Congenital Anomaly, R=Required Intervention, O=Other,
+        U=Unknown, I=No Information, A=Not Applicable, *=Invalid Data.
+
+        Args:
+            results_df: DataFrame with a SEQUENCE_NUMBER_OUTCOME column.
+            outcome: A code (e.g. 'D') or list of codes (e.g. ['D', 'L']),
+                combined with OR logic.
+
+        Returns:
+            Filtered DataFrame.
+        """
+        if 'SEQUENCE_NUMBER_OUTCOME' not in results_df.columns:
+            raise ValueError(
+                "results_df has no SEQUENCE_NUMBER_OUTCOME column. Call "
+                "enrich_with_patient_data() first."
+            )
+        codes = {outcome} if isinstance(outcome, str) else set(outcome)
+        matches = results_df['SEQUENCE_NUMBER_OUTCOME'].apply(
+            lambda v: isinstance(v, str) and bool(codes & {c.strip() for c in v.split(';')})
+        )
+        return results_df[matches]
+
+    def filter_by_patient(self, results_df, age_min=None, age_max=None, sex=None):
+        """
+        Filter to rows matching patient demographic criteria.
+
+        Requires enrich_with_patient_data() to have been called first — that's
+        what adds the PATIENT_AGE and PATIENT_SEX columns.
+
+        PATIENT_AGE in the raw MAUDE data is free text like "56 YR", with
+        inconsistent units (MO, DA, WK, HR) and placeholder values (NA,
+        UNKNOWN, *) where age wasn't reported. age_min/age_max only match the
+        "<n> YR" pattern; rows in any other format are excluded when an age
+        filter is given, since e.g. months or days aren't comparable to a
+        year range.
+
+        Args:
+            results_df: DataFrame with PATIENT_AGE/PATIENT_SEX columns.
+            age_min: Minimum age in years, inclusive.
+            age_max: Maximum age in years, inclusive.
+            sex: PATIENT_SEX value to match, e.g. 'Male', 'Female', 'Unknown'
+                (case-insensitive).
+
+        Returns:
+            Filtered DataFrame.
+        """
+        missing = {'PATIENT_AGE', 'PATIENT_SEX'} - set(results_df.columns)
+        if missing:
+            raise ValueError(
+                f"results_df is missing {sorted(missing)}. Call "
+                "enrich_with_patient_data() first."
+            )
+        mask = pd.Series(True, index=results_df.index)
+        if age_min is not None or age_max is not None:
+            years = pd.to_numeric(
+                results_df['PATIENT_AGE'].str.extract(
+                    r'^\s*(\d+)\s*YR\s*$', flags=re.IGNORECASE
+                )[0],
+                errors='coerce'
+            )
+            if age_min is not None:
+                mask &= years >= age_min
+            if age_max is not None:
+                mask &= years <= age_max
+        if sex is not None:
+            mask &= results_df['PATIENT_SEX'].str.lower() == sex.lower()
+        return results_df[mask]
+
+    def filter_by_problem(self, results_df, problem_code):
+        """
+        Keep only rows matching the given device problem code(s).
+
+        Requires enrich_with_problems() to have been called first — that's
+        what adds the DEVICE_PROBLEM_CODE column. enrich_with_problems
+        produces one row per (report, problem code) pair, so this just
+        selects the matching rows; a report's other, non-matching problem
+        codes simply aren't included.
+
+        Args:
+            results_df: DataFrame with a DEVICE_PROBLEM_CODE column.
+            problem_code: A code (e.g. '3189') or list of codes, combined
+                with OR logic.
+
+        Returns:
+            Filtered DataFrame.
+        """
+        if 'DEVICE_PROBLEM_CODE' not in results_df.columns:
+            raise ValueError(
+                "results_df has no DEVICE_PROBLEM_CODE column. Call "
+                "enrich_with_problems() first."
+            )
+        codes = {problem_code} if isinstance(problem_code, str) else set(problem_code)
+        return results_df[results_df['DEVICE_PROBLEM_CODE'].isin(codes)]
+
+    def filter_by_narrative(self, results_df, term):
+        """
+        Keep only rows whose FOI_TEXT narrative contains the given substring.
+
+        Unlike the other filter_by_* methods, this doesn't require a prior
+        enrich step — it queries the text table directly for the
+        MDR_REPORT_KEYs already present in results_df. A report matches if
+        any of its (possibly several) narrative entries contain the term.
+
+        Args:
+            results_df: DataFrame with an MDR_REPORT_KEY column.
+            term: Substring to search for in FOI_TEXT (case-insensitive).
+
+        Returns:
+            Filtered DataFrame.
+        """
+        keys = results_df['MDR_REPORT_KEY'].unique().tolist()
+        if not keys:
+            return results_df
+        placeholders = ', '.join(['?'] * len(keys))
+        matching_keys = self.conn.execute(
+            f"SELECT DISTINCT MDR_REPORT_KEY FROM text "
+            f"WHERE MDR_REPORT_KEY IN ({placeholders}) AND FOI_TEXT ILIKE ?",
+            keys + [f'%{term}%']
+        ).df()['MDR_REPORT_KEY']
+        return results_df[results_df['MDR_REPORT_KEY'].isin(matching_keys)]
+
     def query(self, sql, params=None):
         """Execute a raw DuckDB SQL query and return a DataFrame."""
         return self.conn.execute(sql, params or []).df()
@@ -390,8 +537,25 @@ class MaudeDatabase:
             # dates (e.g. a placeholder year like 1900) that would otherwise
             # make this range misleading.
             years = self._covered_years(t)
-            if years:
-                print(f"  {t:10s}: {count:>10,} rows  ({min(years)}–{max(years)})")
+            real_years = years - {self._ALL_YEARS}
+            if not TABLE_METADATA[t].get('date_column'):
+                # patient/problem load one whole-history file recorded under
+                # the _ALL_YEARS sentinel, plus the current year's increment —
+                # real_years alone would misleadingly look like a one-year span.
+                if self._ALL_YEARS in years:
+                    label = f"all years thru {max(real_years)}" if real_years else "all years"
+                elif real_years:
+                    label = f"{min(real_years)}–{max(real_years)}"
+                else:
+                    label = None
+                print(f"  {t:10s}: {count:>10,} rows  ({label})" if label
+                      else f"  {t:10s}: {count:>10,} rows")
+            elif real_years:
+                # Drop pre-1991 years (before MAUDE existed) from the displayed
+                # range — they're implausible-date rows, not real coverage.
+                plausible = {y for y in real_years if y >= self._MAUDE_INCEPTION_YEAR}
+                display_years = plausible or real_years
+                print(f"  {t:10s}: {count:>10,} rows  ({min(display_years)}–{max(display_years)})")
             else:
                 print(f"  {t:10s}: {count:>10,} rows")
 
@@ -550,7 +714,10 @@ class MaudeDatabase:
             return
 
         any_changed = force_reload or any(
-            self._get_stored_checksum(table, current_year if is_current else anchor) != cksum
+            self._get_stored_checksum(
+                table,
+                current_year if is_current else (anchor if date_column else self._ALL_YEARS)
+            ) != cksum
             for anchor, is_current, fp, cksum in fetched
         )
         if not any_changed:
@@ -569,29 +736,42 @@ class MaudeDatabase:
                 self._record_load(table, current_year, source_file, cksum, rows)
             else:
                 if date_column:
-                    # Record the years this file *actually* contains, rather
-                    # than assuming it only covers up to the requested anchor —
-                    # thru-file selection chases whatever's latest-available
-                    # regardless of the specific year requested, so the real
-                    # content can cover more than that (see _implied_years).
+                    # Record every year this file *actually* contains — thru-file
+                    # selection chases whatever's latest-available regardless of
+                    # the specific year requested, so the real content can cover
+                    # more than the requested anchor (see _implied_years), and
+                    # real MAUDE data also carries a few implausible dates (e.g.
+                    # 1900) that still land somewhere via _parse_date_expr. Rows
+                    # are never filtered out of the table itself, so every year
+                    # found here must be recorded — clipping to start_year..
+                    # current_year previously left those rows in the table but
+                    # invisible to _load_metadata, making recorded and actual
+                    # row counts silently diverge. The add_years() guard above
+                    # already ignores years below start_year when checking for
+                    # silently-dropped data, so recording them here is safe.
                     covered_rows = self.conn.execute(
                         f'SELECT year("{date_column}") AS y, COUNT(*) FROM {table} '
                         f"WHERE source_file = '{source_file}' GROUP BY y"
                     ).fetchall()
+                    implausible = []
                     for y, c in covered_rows:
-                        # Real MAUDE data has malformed dates that parse to
-                        # implausible years (e.g. 1900) — _validate() clips
-                        # every future request to start_year..current_year, so
-                        # recording anything outside that range here would make
-                        # the guard rail permanently unsatisfiable.
-                        if y is not None and meta['start_year'] <= y <= current_year:
-                            self._record_load(table, y, source_file, cksum, c)
+                        if y is None:
+                            continue
+                        self._record_load(table, y, source_file, cksum, c)
+                        if y < meta['start_year'] or y > current_year:
+                            implausible.append((y, c))
+                    if implausible and self.verbose:
+                        detail = ', '.join(f'{c:,} row(s) in {y}' for y, c in sorted(implausible))
+                        print(f'  Warning: {table} contains data outside '
+                              f'{meta["start_year"]}-{current_year}: {detail}')
                 else:
-                    # No date column to verify against (patient, problem) — the
-                    # same latest-available fetch behavior applies, so assume
-                    # the same full range _implied_years does.
-                    for y in range(meta['start_year'], current_year):
-                        self._record_load(table, y, source_file, cksum, rows)
+                    # No date column to attribute rows to a year (patient,
+                    # problem) — the whole file is one unit, so record it once
+                    # under the _ALL_YEARS sentinel rather than once per
+                    # calendar year (which previously multiplied the recorded
+                    # row count by ~25x with no way to tell real from duplicate
+                    # entries).
+                    self._record_load(table, self._ALL_YEARS, source_file, cksum, rows)
 
         if self.verbose:
             total = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -599,11 +779,130 @@ class MaudeDatabase:
 
     # ── Private: DuckDB loading ───────────────────────────────────────────────
 
+    # Sentinel _load_metadata year for cumulative tables with no date_column
+    # (patient, problem): their thru-file is loaded in full, with no way to
+    # attribute rows to individual years, so it's recorded once under this
+    # value rather than once per calendar year.
+    _ALL_YEARS = 0
+
+    # MAUDE's reporting program began in 1991; a handful of cumulative-file
+    # rows carry earlier placeholder/garbage dates (e.g. 1900). Those rows are
+    # kept and recorded accurately in _load_metadata, but excluded from the
+    # displayed year range in info() so one stray date doesn't make the whole
+    # table's coverage look wrong.
+    _MAUDE_INCEPTION_YEAR = 1991
+
     # DuckDB CSV read options shared across all load methods.
     # all_varchar=true prevents DuckDB from auto-inferring types, which would
     # cause TRY_STRPTIME to fail (it expects VARCHAR, not auto-detected DATE).
     # Types for key columns are handled explicitly in each SELECT.
     _CSV_OPTS = "sep='|', encoding='latin-1', quote='', ignore_errors=true, all_varchar=true, strict_mode=false"
+
+    def _repair_malformed_lines(self, filepath):
+        """
+        Reconstruct MAUDE source records broken across multiple physical lines
+        by a raw newline embedded in an unquoted text field (e.g. an address
+        field with a line break). Detected as a run of consecutive lines whose
+        delimiter counts don't individually match the header's column count,
+        but do once their raw text is concatenated — that concatenation (not
+        a re-split-and-rejoin of each fragment's own fields) exactly
+        reconstructs the original record, since it just undoes the line break
+        that broke it in the first place.
+
+        A line with MORE delimiters than expected (a stray literal delimiter
+        typed into a text field) can't be disambiguated this way, and neither
+        can a run that never resolves to the expected column count (e.g. a
+        truncated file) — both are left for read_csv's ignore_errors to drop,
+        same as today.
+
+        Returns (repaired_rows, columns, n_dropped_too_many, n_dropped_unexplained).
+        repaired_rows is a list of tuples of field values (str), in the same
+        column order as the file's header, ready to union into the normal
+        read_csv(...) result (which already silently drops all of these lines
+        itself, via ignore_errors=true).
+        """
+        repaired_rows = []
+        n_too_many = 0
+        n_unexplained = 0
+
+        with open(filepath, 'rb') as f:
+            header = f.readline().rstrip(b'\r\n')
+            columns = [c.decode('latin-1') for c in header.split(b'|')]
+            expected = len(columns)
+
+            pending_raw = None
+            pending_fields = 0
+
+            for raw in f:
+                nf = raw.count(b'|') + 1
+                if pending_raw is None:
+                    if nf == expected:
+                        continue
+                    elif nf > expected:
+                        n_too_many += 1
+                    else:
+                        pending_raw = raw
+                        pending_fields = nf
+                else:
+                    pending_raw += raw
+                    pending_fields += nf - 1
+                    if pending_fields == expected:
+                        values = pending_raw.rstrip(b'\r\n').split(b'|')
+                        repaired_rows.append(tuple(v.decode('latin-1') for v in values))
+                        pending_raw = None
+                    elif pending_fields > expected:
+                        n_unexplained += 1
+                        pending_raw = None
+                        if nf == expected:
+                            pass
+                        elif nf > expected:
+                            n_too_many += 1
+                        else:
+                            pending_raw = raw
+                            pending_fields = nf
+
+            if pending_raw is not None:
+                n_unexplained += 1
+
+        return repaired_rows, columns, n_too_many, n_unexplained
+
+    def _repaired_csv_source(self, table, filepath, csv_opts):
+        """
+        SQL source for one file's data: the normal read_csv(...) plus any
+        rows recovered by _repair_malformed_lines, unioned in. Updates
+        self._repair_stats[table] for add_years()'s end-of-run report.
+        """
+        fp = filepath.replace("'", "''")
+        base_sql = f"SELECT * FROM read_csv('{fp}', {csv_opts})"
+
+        repaired_rows, columns, n_too_many, n_unexplained = self._repair_malformed_lines(filepath)
+
+        stats = self._repair_stats[table]
+        stats['fixed'] += len(repaired_rows)
+        stats['dropped_too_many'] += n_too_many
+        stats['dropped_unexplained'] += n_unexplained
+
+        if not repaired_rows:
+            return base_sql
+
+        view_name = f'_repaired_rows_{table}'
+        self.conn.register(view_name, pd.DataFrame(repaired_rows, columns=columns))
+        return f"{base_sql} UNION ALL SELECT * FROM {view_name}"
+
+    def _print_repair_report(self):
+        """Summarize source-line repairs from this add_years() call, by table."""
+        if not self._repair_stats:
+            return
+        active = {t: s for t, s in self._repair_stats.items() if any(s.values())}
+        if not active:
+            return
+        print('\nSource-line repair summary (records split or corrupted by a raw '
+              'delimiter/newline in the source file):')
+        for table in sorted(active):
+            s = active[table]
+            print(f'  {table}: {s["fixed"]:,} recovered, '
+                  f'{s["dropped_too_many"]:,} dropped (stray delimiter, unrecoverable), '
+                  f'{s["dropped_unexplained"]:,} dropped (unresolved)')
 
     def _parse_date_expr(self, col):
         """Return a SQL expression that parses a VARCHAR date column to DATE."""
@@ -619,15 +918,15 @@ class MaudeDatabase:
         if self.verbose:
             print(f'  Loading {table} {year}...')
 
-        fp = filepath.replace("'", "''")
         source_file = os.path.basename(filepath).replace("'", "''")
+        csv_source_sql = self._repaired_csv_source(table, filepath, self._CSV_OPTS)
 
         if table == 'device':
             # Parse DATE_RECEIVED and add DEVICE_NAME_CONCAT in one CTE pass.
             date_expr = self._parse_date_expr('DATE_RECEIVED')
             select_sql = f"""
                 WITH raw AS (
-                    SELECT * FROM read_csv('{fp}', {self._CSV_OPTS})
+                    {csv_source_sql}
                 )
                 SELECT * REPLACE ({date_expr} AS DATE_RECEIVED),
                     upper(coalesce(BRAND_NAME, '') || '|' ||
@@ -640,7 +939,7 @@ class MaudeDatabase:
             # text/problem: no date column that needs parsing.
             select_sql = f"""
                 SELECT *, '{source_file}' AS source_file
-                FROM read_csv('{fp}', {self._CSV_OPTS})
+                FROM ({csv_source_sql})
             """
 
         if self._table_exists(table):
@@ -716,15 +1015,16 @@ class MaudeDatabase:
                         if f'column{i}' in existing:
                             self.conn.execute(f'ALTER TABLE problem RENAME COLUMN "column{i}" TO "{name}"')
         else:
+            csv_source_sql = self._repaired_csv_source(table, filepath, self._CSV_OPTS)
             if date_column:
                 date_expr = self._parse_date_expr(f'"{date_column}"')
                 raw_select_sql = f"""
                     SELECT * REPLACE ({date_expr} AS "{date_column}")
-                    FROM read_csv('{fp}', {self._CSV_OPTS})
+                    FROM ({csv_source_sql})
                 """
             else:
                 raw_select_sql = f"""
-                    SELECT * FROM read_csv('{fp}', {self._CSV_OPTS})
+                    SELECT * FROM ({csv_source_sql})
                 """
             if self._table_exists(table):
                 self._ensure_new_columns(table, filepath)
@@ -784,8 +1084,9 @@ class MaudeDatabase:
             if col and col not in existing:
                 try:
                     self.conn.execute(f'ALTER TABLE "{table}" ADD COLUMN "{col}" VARCHAR')
-                except Exception:
-                    pass
+                except Exception as e:
+                    if self.verbose:
+                        print(f'  Warning: could not add column "{col}" to {table}: {e}')
 
     def _create_indexes(self):
         """Create indexes on join keys. DuckDB ART indexes help point lookups and joins."""
@@ -992,7 +1293,7 @@ class MaudeDatabase:
     def _get_years_in_db(self):
         try:
             rows = self.conn.execute(
-                "SELECT DISTINCT year FROM _load_metadata"
+                "SELECT DISTINCT year FROM _load_metadata WHERE year != ?", [self._ALL_YEARS]
             ).fetchall()
             return sorted(r[0] for r in rows)
         except Exception:

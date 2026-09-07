@@ -48,7 +48,7 @@ TABLE_METADATA = {
         'pattern_type': 'cumulative',       # foidevproblem_thru{year}.zip + foidevproblem.zip
         'current_year_prefix': 'foidevproblem',
         'thru_separator': '_',              # filename: foidevproblem_thru{year}.zip
-        'start_year': 2000,
+        'start_year': 1993,                 # device problem codes predate the 2000 cutoff used elsewhere
         'description': 'Device problem codes',
     },
 }

@@ -11,3 +11,4 @@ maude_archive/
 */*.egg-info/
 *.zip
 dev_local/
+*.csv
