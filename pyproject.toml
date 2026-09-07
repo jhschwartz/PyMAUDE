@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pymaude"
 version = "0.2.0"
-description = "PyMAUDE: FDA MAUDE adverse event database interface"
+description = "PyMAUDE: a Python library for local and reproducible analysis of the FDA Manufacturer and User Facility Device Experience (MAUDE) database"
 authors = [{name = "Jacob Schwartz", email = "jaschwa@umich.edu"}]
 readme = "README.md"
 requires-python = ">=3.9"
