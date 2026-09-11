@@ -348,6 +348,25 @@ class MaudeDatabase:
         trends.rename(columns={'size': 'event_count'}, inplace=True)
         return trends.sort_values(group_cols)
 
+    def _enrich(self, results_df, table, suffix):
+        """
+        Left-join `table` onto results_df by MDR_REPORT_KEY.
+
+        Shared implementation behind enrich_with_patient_data,
+        enrich_with_device_problems, and enrich_with_patient_problems — they
+        differ only in which table they join and which suffix resolves a
+        column-name collision.
+        """
+        keys = results_df['MDR_REPORT_KEY'].tolist()
+        if not keys:
+            return results_df
+        placeholders = ', '.join(['?'] * len(keys))
+        other = self.conn.execute(
+            f"SELECT * FROM {table} WHERE MDR_REPORT_KEY IN ({placeholders})", keys
+        ).df()
+        return results_df.merge(other, on='MDR_REPORT_KEY', how='left',
+                                suffixes=('', suffix))
+
     def enrich_with_patient_data(self, results_df):
         """
         Left-join patient outcome data onto a results DataFrame.
@@ -358,15 +377,7 @@ class MaudeDatabase:
         Returns:
             results_df with patient columns appended (suffixed '_patient' on collision).
         """
-        keys = results_df['MDR_REPORT_KEY'].tolist()
-        if not keys:
-            return results_df
-        placeholders = ', '.join(['?'] * len(keys))
-        patient = self.conn.execute(
-            f"SELECT * FROM patient WHERE MDR_REPORT_KEY IN ({placeholders})", keys
-        ).df()
-        return results_df.merge(patient, on='MDR_REPORT_KEY', how='left',
-                                suffixes=('', '_patient'))
+        return self._enrich(results_df, 'patient', '_patient')
 
     def enrich_with_device_problems(self, results_df):
         """
@@ -379,15 +390,7 @@ class MaudeDatabase:
             results_df with device_problem columns appended (suffixed
             '_device_problem' on collision).
         """
-        keys = results_df['MDR_REPORT_KEY'].tolist()
-        if not keys:
-            return results_df
-        placeholders = ', '.join(['?'] * len(keys))
-        device_problems = self.conn.execute(
-            f"SELECT * FROM device_problem WHERE MDR_REPORT_KEY IN ({placeholders})", keys
-        ).df()
-        return results_df.merge(device_problems, on='MDR_REPORT_KEY', how='left',
-                                suffixes=('', '_device_problem'))
+        return self._enrich(results_df, 'device_problem', '_device_problem')
 
     def enrich_with_patient_problems(self, results_df):
         """
@@ -400,15 +403,7 @@ class MaudeDatabase:
             results_df with patient_problem columns appended (suffixed
             '_patient_problem' on collision).
         """
-        keys = results_df['MDR_REPORT_KEY'].tolist()
-        if not keys:
-            return results_df
-        placeholders = ', '.join(['?'] * len(keys))
-        patient_problems = self.conn.execute(
-            f"SELECT * FROM patient_problem WHERE MDR_REPORT_KEY IN ({placeholders})", keys
-        ).df()
-        return results_df.merge(patient_problems, on='MDR_REPORT_KEY', how='left',
-                                suffixes=('', '_patient_problem'))
+        return self._enrich(results_df, 'patient_problem', '_patient_problem')
 
     def filter_by_outcome(self, results_df, outcome):
         """
@@ -489,6 +484,22 @@ class MaudeDatabase:
             mask &= results_df['PATIENT_SEX'].str.lower() == sex.lower()
         return results_df[mask]
 
+    def _filter_by_code_column(self, results_df, column, code, enrich_hint):
+        """
+        Keep only rows whose `column` matches one of `code`.
+
+        Shared implementation behind filter_by_device_problem and
+        filter_by_patient_problem — they differ only in which enriched code
+        column they match on and which enrich_with_* method the error
+        message points readers to.
+        """
+        if column not in results_df.columns:
+            raise ValueError(
+                f"results_df has no {column} column. Call {enrich_hint}() first."
+            )
+        codes = {code} if isinstance(code, str) else set(code)
+        return results_df[results_df[column].isin(codes)]
+
     def filter_by_device_problem(self, results_df, problem_code):
         """
         Keep only rows matching the given device problem code(s).
@@ -507,13 +518,9 @@ class MaudeDatabase:
         Returns:
             Filtered DataFrame.
         """
-        if 'DEVICE_PROBLEM_CODE' not in results_df.columns:
-            raise ValueError(
-                "results_df has no DEVICE_PROBLEM_CODE column. Call "
-                "enrich_with_device_problems() first."
-            )
-        codes = {problem_code} if isinstance(problem_code, str) else set(problem_code)
-        return results_df[results_df['DEVICE_PROBLEM_CODE'].isin(codes)]
+        return self._filter_by_code_column(
+            results_df, 'DEVICE_PROBLEM_CODE', problem_code, 'enrich_with_device_problems'
+        )
 
     def filter_by_patient_problem(self, results_df, problem_code):
         """
@@ -533,13 +540,9 @@ class MaudeDatabase:
         Returns:
             Filtered DataFrame.
         """
-        if 'PATIENT_PROBLEM_CODE' not in results_df.columns:
-            raise ValueError(
-                "results_df has no PATIENT_PROBLEM_CODE column. Call "
-                "enrich_with_patient_problems() first."
-            )
-        codes = {problem_code} if isinstance(problem_code, str) else set(problem_code)
-        return results_df[results_df['PATIENT_PROBLEM_CODE'].isin(codes)]
+        return self._filter_by_code_column(
+            results_df, 'PATIENT_PROBLEM_CODE', problem_code, 'enrich_with_patient_problems'
+        )
 
     def filter_by_narrative(self, results_df, term):
         """
@@ -576,9 +579,11 @@ class MaudeDatabase:
         """Print a summary of loaded tables."""
         print(f"Database : {self.db_path}")
         print(f"Data dir : {self.data_dir}")
-        for t in ['master', 'device', 'text', 'patient', 'device_problem', 'patient_problem']:
+        tables = ['master', 'device', 'text', 'patient', 'device_problem', 'patient_problem']
+        width = max(len(t) for t in tables)
+        for t in tables:
             if not self._table_exists(t):
-                print(f"  {t:10s}: not loaded")
+                print(f"  {t:{width}s}: not loaded")
                 continue
             count = self.conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
             # Years the table *should* cover, per _load_metadata, rather than
@@ -607,16 +612,16 @@ class MaudeDatabase:
                     label = f"{min(real_years)}–{max(real_years)}"
                 else:
                     label = None
-                print(f"  {t:10s}: {count:>10,} rows  ({label})" if label
-                      else f"  {t:10s}: {count:>10,} rows")
+                print(f"  {t:{width}s}: {count:>10,} rows  ({label})" if label
+                      else f"  {t:{width}s}: {count:>10,} rows")
             elif real_years:
                 # Drop pre-1991 years (before MAUDE existed) from the displayed
                 # range — they're implausible-date rows, not real coverage.
                 plausible = {y for y in real_years if y >= self._MAUDE_INCEPTION_YEAR}
                 display_years = plausible or real_years
-                print(f"  {t:10s}: {count:>10,} rows  ({min(display_years)}–{max(display_years)})")
+                print(f"  {t:{width}s}: {count:>10,} rows  ({min(display_years)}–{max(display_years)})")
             else:
-                print(f"  {t:10s}: {count:>10,} rows")
+                print(f"  {t:{width}s}: {count:>10,} rows")
 
     def close(self):
         """Close the DuckDB connection."""
@@ -1096,12 +1101,13 @@ class MaudeDatabase:
         headerless_columns = TABLE_METADATA[table].get('headerless_columns')
 
         if headerless_columns:
-            # device_problem/patient_problem ship with no header row — name
-            # columns explicitly so DuckDB doesn't fall back to
-            # column0/column1/... naming. device_problem's file has shipped
-            # with 2 or 3 columns depending on release year; patient_problem's
-            # is always exactly 2 — slicing the configured column list to the
-            # file's actual sniffed width handles both with one code path.
+            # device_problem ships with no header row (patient_problem uses
+            # the column_renames/else branch below instead — its real file
+            # has a genuine header) — name columns explicitly so DuckDB
+            # doesn't fall back to column0/column1/... naming. device_problem's
+            # file has shipped with 2 or 3 columns depending on release year;
+            # slicing the configured column list to the file's actual sniffed
+            # width handles both vintages with one code path.
             _opts = (f"sep='|', encoding='latin-1', quote='', ignore_errors=true, "
                      f"all_varchar=true, strict_mode=false, header=false")
             with open(filepath, 'r', encoding='latin1') as _f:
@@ -1112,6 +1118,14 @@ class MaudeDatabase:
                 SELECT {_col_select}
                 FROM read_csv('{fp}', {_opts})
             """
+            if self._table_exists(table):
+                # Without this, a thru-file/current-year-file pair that
+                # differ in sniffed width (e.g. one is the legacy 2-column
+                # format, the other 3-column) would either crash the dedup
+                # EXCEPT below (mismatched column counts) or fail the
+                # INSERT ... BY NAME if the existing table's schema is
+                # narrower than the newly-loaded file's columns.
+                self._ensure_new_columns(table, filepath, columns=_names)
         else:
             csv_source_sql = self._repaired_csv_source(table, filepath, self._CSV_OPTS)
             if date_column:
@@ -1179,13 +1193,21 @@ class MaudeDatabase:
             print(f'    {rows:,} rows')
         return rows
 
-    def _ensure_new_columns(self, table, filepath):
+    def _ensure_new_columns(self, table, filepath, columns=None):
         """
-        Add any columns present in the CSV that are missing from the DuckDB table.
-        Handles MAUDE's schema variations across years (e.g., new fields added in later files).
+        Add any columns present in the source file that are missing from the
+        DuckDB table. Handles MAUDE's schema variations across years (e.g.,
+        new fields added in later files).
+
+        columns: explicit column names to check, for headerless files where
+        there's no header line to read (the caller already knows the names
+        it sliced from headerless_columns). When omitted, the file's own
+        header line is read and split.
         """
-        with open(filepath, 'r', encoding='latin1') as f:
-            csv_cols = set(f.readline().strip().split('|'))
+        if columns is None:
+            with open(filepath, 'r', encoding='latin1') as f:
+                columns = f.readline().strip().split('|')
+        csv_cols = set(columns)
 
         renames = TABLE_METADATA[table].get('column_renames', {})
         existing = {row[0] for row in self.conn.execute(f"DESCRIBE {table}").fetchall()}

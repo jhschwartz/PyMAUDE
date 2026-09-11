@@ -98,7 +98,7 @@ def data_dir(tmp_path):
     (d / 'foidevproblem_thru2025.txt').write_text(DEVICE_PROBLEMS_THRU_CSV)
     (d / 'foidevproblem.txt').write_text(DEVICE_PROBLEMS_CURRENT_CSV)
 
-    # Patient problems: cumulative thru file + current-year file (no header row in real data)
+    # Patient problems: cumulative thru file + current-year file (has a real header row, unlike device problems)
     (d / 'patientproblemcode_thru2025.txt').write_text(PATIENT_PROBLEMS_THRU_CSV)
     (d / 'patientproblemcode.txt').write_text(PATIENT_PROBLEMS_CURRENT_CSV)
 

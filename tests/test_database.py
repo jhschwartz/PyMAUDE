@@ -40,6 +40,47 @@ class TestAddYears:
         assert result.iloc[0, 0] == 4
         db.close()
 
+    def test_device_problem_true_two_column_format(self, tmp_path):
+        """Real current-vintage foidevproblem files have no trailing pipe —
+        exactly 2 columns, not 3. The shared DEVICE_PROBLEMS_* fixture has a
+        trailing pipe on each row (matching a historical 3-column vintage),
+        so it never exercises this 2-column sniffing path; this test covers
+        it directly with a file shaped like real current FDA data."""
+        from pymaude import MaudeDatabase
+        d = tmp_path / 'maude_data'
+        d.mkdir()
+        (d / 'foidevproblem_thru2025.txt').write_text('1001|1546\n1002|2993\n')
+        db = MaudeDatabase(str(tmp_path / 'twocol.duckdb'), data_dir=str(d), verbose=False)
+        db.add_years(2020, tables=['device_problem'])
+        cols = {r[0] for r in db.conn.execute('DESCRIBE device_problem').fetchall()}
+        assert cols == {'MDR_REPORT_KEY', 'DEVICE_PROBLEM_CODE', 'source_file'}
+        result = db.query("SELECT COUNT(*) FROM device_problem")
+        assert result.iloc[0, 0] == 2
+        db.close()
+
+    def test_device_problem_column_count_widening_across_files(self, tmp_path):
+        """Regression test: a thru-file and current-year file that sniff to
+        different column counts (e.g. a legacy 2-column thru file alongside
+        a newer 3-column current-year file) must not crash the dedup EXCEPT,
+        and the table's schema must widen to accommodate the new column."""
+        from datetime import datetime
+        from pymaude import MaudeDatabase
+        d = tmp_path / 'maude_data'
+        d.mkdir()
+        (d / 'foidevproblem_thru2025.txt').write_text('1001|1546\n1002|2993\n')
+        current_year = datetime.now().year
+        (d / 'foidevproblem.txt').write_text('1001|1546|2024/01/01\n1004|9999|2024/06/01\n')
+        db = MaudeDatabase(str(tmp_path / 'widen.duckdb'), data_dir=str(d), verbose=False)
+        db.add_years([2020, current_year], tables=['device_problem'])
+        cols = {r[0] for r in db.conn.execute('DESCRIBE device_problem').fetchall()}
+        assert 'DATE_ADDED_FLAG' in cols
+        result = db.query("SELECT COUNT(*) FROM device_problem")
+        # thru has 2 rows, current has 2 rows; (1001, 1546) isn't an exact
+        # duplicate across files since the current-year row also carries a
+        # DATE_ADDED_FLAG value the thru-file row lacks, so nothing dedupes.
+        assert result.iloc[0, 0] == 4
+        db.close()
+
     def test_loads_patient_problem(self, db):
         result = db.query("SELECT COUNT(*) FROM patient_problem")
         assert result.iloc[0, 0] == 3
