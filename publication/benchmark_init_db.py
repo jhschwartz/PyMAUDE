@@ -11,7 +11,7 @@ import time
 DB_PATH      = '../maude.duckdb'
 DATA_DIR     = '../maude_data'
 YEARS        = 'all'
-TABLES       = ['master', 'device', 'text', 'patient', 'problem']
+TABLES       = ['master', 'device', 'text', 'patient', 'device_problem', 'patient_problem']
 N_REPLICATES = 5
 
 

@@ -85,9 +85,10 @@ class MaudeDatabase:
             download: If True, download files from FDA before loading.
             force_download: If True, re-download even if zip exists locally.
             force_reload: If True, reload into DB even if checksum is unchanged.
-            force_partial: Cumulative tables (master, patient, problem) are fully
-                replaced on every reload, so a request that doesn't cover years
-                already loaded for one of them would silently drop those years.
+            force_partial: Cumulative tables (master, patient, device_problem,
+                patient_problem) are fully replaced on every reload, so a
+                request that doesn't cover years already loaded for one of
+                them would silently drop those years.
                 That's rejected by default — pass True to proceed anyway. Doesn't
                 apply to yearly tables (device, text), which can't lose data this
                 way since each year is an independent file.
@@ -116,7 +117,7 @@ class MaudeDatabase:
                 years_for_table = sorted(years_by_table[table])
                 implied = self._implied_years(table, years_for_table, meta)
                 # Years below start_year (including the _ALL_YEARS sentinel used
-                # for patient/problem) are always bundled into whatever thru-file
+                # for patient/device_problem/patient_problem) are always bundled into whatever thru-file
                 # a prior-year request pulls in — they're never separately
                 # droppable, so they'd otherwise trip this guard permanently.
                 covered = {y for y in self._covered_years(table) if y >= meta['start_year']}
@@ -367,7 +368,7 @@ class MaudeDatabase:
         return results_df.merge(patient, on='MDR_REPORT_KEY', how='left',
                                 suffixes=('', '_patient'))
 
-    def enrich_with_problems(self, results_df):
+    def enrich_with_device_problems(self, results_df):
         """
         Left-join device problem codes onto a results DataFrame.
 
@@ -375,17 +376,39 @@ class MaudeDatabase:
             results_df: DataFrame with MDR_REPORT_KEY column.
 
         Returns:
-            results_df with problem columns appended (suffixed '_problem' on collision).
+            results_df with device_problem columns appended (suffixed
+            '_device_problem' on collision).
         """
         keys = results_df['MDR_REPORT_KEY'].tolist()
         if not keys:
             return results_df
         placeholders = ', '.join(['?'] * len(keys))
-        problems = self.conn.execute(
-            f"SELECT * FROM problem WHERE MDR_REPORT_KEY IN ({placeholders})", keys
+        device_problems = self.conn.execute(
+            f"SELECT * FROM device_problem WHERE MDR_REPORT_KEY IN ({placeholders})", keys
         ).df()
-        return results_df.merge(problems, on='MDR_REPORT_KEY', how='left',
-                                suffixes=('', '_problem'))
+        return results_df.merge(device_problems, on='MDR_REPORT_KEY', how='left',
+                                suffixes=('', '_device_problem'))
+
+    def enrich_with_patient_problems(self, results_df):
+        """
+        Left-join patient problem codes onto a results DataFrame.
+
+        Args:
+            results_df: DataFrame with MDR_REPORT_KEY column.
+
+        Returns:
+            results_df with patient_problem columns appended (suffixed
+            '_patient_problem' on collision).
+        """
+        keys = results_df['MDR_REPORT_KEY'].tolist()
+        if not keys:
+            return results_df
+        placeholders = ', '.join(['?'] * len(keys))
+        patient_problems = self.conn.execute(
+            f"SELECT * FROM patient_problem WHERE MDR_REPORT_KEY IN ({placeholders})", keys
+        ).df()
+        return results_df.merge(patient_problems, on='MDR_REPORT_KEY', how='left',
+                                suffixes=('', '_patient_problem'))
 
     def filter_by_outcome(self, results_df, outcome):
         """
@@ -466,15 +489,15 @@ class MaudeDatabase:
             mask &= results_df['PATIENT_SEX'].str.lower() == sex.lower()
         return results_df[mask]
 
-    def filter_by_problem(self, results_df, problem_code):
+    def filter_by_device_problem(self, results_df, problem_code):
         """
         Keep only rows matching the given device problem code(s).
 
-        Requires enrich_with_problems() to have been called first — that's
-        what adds the DEVICE_PROBLEM_CODE column. enrich_with_problems
-        produces one row per (report, problem code) pair, so this just
-        selects the matching rows; a report's other, non-matching problem
-        codes simply aren't included.
+        Requires enrich_with_device_problems() to have been called first —
+        that's what adds the DEVICE_PROBLEM_CODE column.
+        enrich_with_device_problems produces one row per (report, problem
+        code) pair, so this just selects the matching rows; a report's
+        other, non-matching problem codes simply aren't included.
 
         Args:
             results_df: DataFrame with a DEVICE_PROBLEM_CODE column.
@@ -487,10 +510,36 @@ class MaudeDatabase:
         if 'DEVICE_PROBLEM_CODE' not in results_df.columns:
             raise ValueError(
                 "results_df has no DEVICE_PROBLEM_CODE column. Call "
-                "enrich_with_problems() first."
+                "enrich_with_device_problems() first."
             )
         codes = {problem_code} if isinstance(problem_code, str) else set(problem_code)
         return results_df[results_df['DEVICE_PROBLEM_CODE'].isin(codes)]
+
+    def filter_by_patient_problem(self, results_df, problem_code):
+        """
+        Keep only rows matching the given patient problem code(s).
+
+        Requires enrich_with_patient_problems() to have been called first —
+        that's what adds the PATIENT_PROBLEM_CODE column.
+        enrich_with_patient_problems produces one row per (report, problem
+        code) pair, so this just selects the matching rows; a report's
+        other, non-matching problem codes simply aren't included.
+
+        Args:
+            results_df: DataFrame with a PATIENT_PROBLEM_CODE column.
+            problem_code: A code (e.g. '3189') or list of codes, combined
+                with OR logic.
+
+        Returns:
+            Filtered DataFrame.
+        """
+        if 'PATIENT_PROBLEM_CODE' not in results_df.columns:
+            raise ValueError(
+                "results_df has no PATIENT_PROBLEM_CODE column. Call "
+                "enrich_with_patient_problems() first."
+            )
+        codes = {problem_code} if isinstance(problem_code, str) else set(problem_code)
+        return results_df[results_df['PATIENT_PROBLEM_CODE'].isin(codes)]
 
     def filter_by_narrative(self, results_df, term):
         """
@@ -527,7 +576,7 @@ class MaudeDatabase:
         """Print a summary of loaded tables."""
         print(f"Database : {self.db_path}")
         print(f"Data dir : {self.data_dir}")
-        for t in ['master', 'device', 'text', 'patient', 'problem']:
+        for t in ['master', 'device', 'text', 'patient', 'device_problem', 'patient_problem']:
             if not self._table_exists(t):
                 print(f"  {t:10s}: not loaded")
                 continue
@@ -539,11 +588,21 @@ class MaudeDatabase:
             years = self._covered_years(t)
             real_years = years - {self._ALL_YEARS}
             if not TABLE_METADATA[t].get('date_column'):
-                # patient/problem load one whole-history file recorded under
+                # patient/device_problem/patient_problem load one whole-history file recorded under
                 # the _ALL_YEARS sentinel, plus the current year's increment —
                 # real_years alone would misleadingly look like a one-year span.
+                # There's no date column to verify actual row-level coverage
+                # from, so the label states TABLE_METADATA's documented
+                # start_year rather than implying a computed/confirmed span —
+                # what's really loaded is "every row FDA's cumulative file
+                # contains", whatever years that happens to include.
                 if self._ALL_YEARS in years:
-                    label = f"all years thru {max(real_years)}" if real_years else "all years"
+                    start_year = TABLE_METADATA[t]['start_year']
+                    label = (
+                        f"FDA docs: {start_year}+, current thru {max(real_years)} (coverage unverified)"
+                        if real_years else
+                        f"FDA docs: {start_year}+ (coverage unverified)"
+                    )
                 elif real_years:
                     label = f"{min(real_years)}–{max(real_years)}"
                 else:
@@ -684,7 +743,7 @@ class MaudeDatabase:
         device1997.zip). Unlike the normal per-year loop, every legacy year
         resolves to this same file, so it's loaded once here and per-year row
         counts are recorded via GROUP BY — same approach _process_cumulative_table
-        uses for master/patient/problem.
+        uses for master/patient/device_problem/patient_problem.
         """
         if download:
             self._download_file(table, legacy_thru, force_download)
@@ -714,8 +773,9 @@ class MaudeDatabase:
 
     def _process_cumulative_table(self, table, years, meta, download, force_download, force_reload):
         """
-        Load a cumulative table (master, patient, problem) from its two source
-        files: a historical "thru{N}" file and the small current-year file.
+        Load a cumulative table (master, patient, device_problem,
+        patient_problem) from its two source files: a historical "thru{N}"
+        file and the small current-year file.
 
         There's no way to know which specific rows inside a changed cumulative
         file were actually modified — FDA ships one monolithic file per group,
@@ -809,7 +869,8 @@ class MaudeDatabase:
                               f'{meta["start_year"]}-{current_year}: {detail}')
                 else:
                     # No date column to attribute rows to a year (patient,
-                    # problem) — the whole file is one unit, so record it once
+                    # device_problem, patient_problem) — the whole file is
+                    # one unit, so record it once
                     # under the _ALL_YEARS sentinel rather than once per
                     # calendar year (which previously multiplied the recorded
                     # row count by ~25x with no way to tell real from duplicate
@@ -823,7 +884,7 @@ class MaudeDatabase:
     # ── Private: DuckDB loading ───────────────────────────────────────────────
 
     # Sentinel _load_metadata year for cumulative tables with no date_column
-    # (patient, problem): their thru-file is loaded in full, with no way to
+    # (patient, device_problem, patient_problem): their thru-file is loaded in full, with no way to
     # attribute rows to individual years, so it's recorded once under this
     # value rather than once per calendar year.
     _ALL_YEARS = 0
@@ -979,7 +1040,7 @@ class MaudeDatabase:
                 FROM raw
             """
         else:
-            # text/problem: no date column that needs parsing.
+            # text: no date column that needs parsing.
             select_sql = f"""
                 SELECT *, '{source_file}' AS source_file
                 FROM ({csv_source_sql})
@@ -1011,12 +1072,13 @@ class MaudeDatabase:
     def _load_all(self, table, filepath, date_column=None, dedup=False):
         """
         Load a cumulative file's full content into table, creating it if it
-        doesn't exist yet. Used for master, patient, problem — the caller
-        (_process_cumulative_table) is responsible for wiping the table first
-        when a fresh load is needed; this just inserts/creates.
+        doesn't exist yet. Used for master, patient, device_problem,
+        patient_problem — the caller (_process_cumulative_table) is
+        responsible for wiping the table first when a fresh load is needed;
+        this just inserts/creates.
 
         date_column: if given, that column is parsed from VARCHAR to DATE
-        (master has one; patient/problem don't).
+        (master has one; patient/device_problem/patient_problem don't).
         dedup: the current-year file's rows can overlap with what the thru-file
         already loaded — pass True (for every group after the first in a given
         table-processing pass) to only insert rows not already present.
@@ -1031,32 +1093,25 @@ class MaudeDatabase:
         fp = filepath.replace("'", "''")
         source_file = os.path.basename(filepath).replace("'", "''")
 
-        if table == 'problem':
-            # foidevproblem has no header row — name columns explicitly so DuckDB
-            # doesn't fall back to column0/column1/column2 naming.
-            # The file has shipped with 2 or 3 columns depending on the release year.
+        headerless_columns = TABLE_METADATA[table].get('headerless_columns')
+
+        if headerless_columns:
+            # device_problem/patient_problem ship with no header row — name
+            # columns explicitly so DuckDB doesn't fall back to
+            # column0/column1/... naming. device_problem's file has shipped
+            # with 2 or 3 columns depending on release year; patient_problem's
+            # is always exactly 2 — slicing the configured column list to the
+            # file's actual sniffed width handles both with one code path.
             _opts = (f"sep='|', encoding='latin-1', quote='', ignore_errors=true, "
                      f"all_varchar=true, strict_mode=false, header=false")
             with open(filepath, 'r', encoding='latin1') as _f:
                 _ncols = len(_f.readline().split('|'))
-            if _ncols >= 3:
-                _col_select = ("column0 AS MDR_REPORT_KEY, "
-                               "column1 AS DEVICE_PROBLEM_CODE, "
-                               "column2 AS DATE_ADDED_FLAG")
-            else:
-                _col_select = ("column0 AS MDR_REPORT_KEY, "
-                               "column1 AS DEVICE_PROBLEM_CODE")
+            _names = headerless_columns[:_ncols]
+            _col_select = ", ".join(f"column{i} AS {name}" for i, name in enumerate(_names))
             raw_select_sql = f"""
                 SELECT {_col_select}
                 FROM read_csv('{fp}', {_opts})
             """
-            if self._table_exists(table):
-                # Migrate column names if db was created before explicit-naming fix.
-                existing = {r[0] for r in self.conn.execute("DESCRIBE problem").fetchall()}
-                if 'column0' in existing and 'MDR_REPORT_KEY' not in existing:
-                    for i, name in enumerate(['MDR_REPORT_KEY', 'DEVICE_PROBLEM_CODE', 'DATE_ADDED_FLAG']):
-                        if f'column{i}' in existing:
-                            self.conn.execute(f'ALTER TABLE problem RENAME COLUMN "column{i}" TO "{name}"')
         else:
             csv_source_sql = self._repaired_csv_source(table, filepath, self._CSV_OPTS)
             if date_column:
@@ -1068,6 +1123,18 @@ class MaudeDatabase:
             else:
                 raw_select_sql = f"""
                     SELECT * FROM ({csv_source_sql})
+                """
+            column_renames = TABLE_METADATA[table].get('column_renames')
+            if column_renames:
+                # patient_problem's real header names its code column
+                # PROBLEM_CODE — renamed here to PATIENT_PROBLEM_CODE to
+                # match the DEVICE_PROBLEM_CODE naming convention.
+                rename_clause = ", ".join(
+                    f'"{old}" AS "{new}"' for old, new in column_renames.items()
+                )
+                raw_select_sql = f"""
+                    SELECT * RENAME ({rename_clause})
+                    FROM ({raw_select_sql})
                 """
             if self._table_exists(table):
                 self._ensure_new_columns(table, filepath)
@@ -1120,10 +1187,12 @@ class MaudeDatabase:
         with open(filepath, 'r', encoding='latin1') as f:
             csv_cols = set(f.readline().strip().split('|'))
 
+        renames = TABLE_METADATA[table].get('column_renames', {})
         existing = {row[0] for row in self.conn.execute(f"DESCRIBE {table}").fetchall()}
 
         for col in csv_cols:
             col = col.strip()
+            col = renames.get(col, col)
             if col and col not in existing:
                 try:
                     self.conn.execute(f'ALTER TABLE "{table}" ADD COLUMN "{col}" VARCHAR')
@@ -1140,7 +1209,8 @@ class MaudeDatabase:
             ('device', 'DEVICE_REPORT_PRODUCT_CODE'),
             ('text', 'MDR_REPORT_KEY'),
             ('patient', 'MDR_REPORT_KEY'),
-            ('problem', 'MDR_REPORT_KEY'),
+            ('device_problem', 'MDR_REPORT_KEY'),
+            ('patient_problem', 'MDR_REPORT_KEY'),
         ]:
             if self._table_exists(table):
                 idx = f"idx_{table}_{col.lower()}"
@@ -1297,11 +1367,14 @@ class MaudeDatabase:
                     f"{prefix}{sep}thru{thru_year}.txt",
                     f"{prefix.upper()}{sep}thru{thru_year}.txt",
                 ]
-            # Fallback: any file matching the cumulative pattern.
+            # Fallback: any file matching the cumulative pattern. Must match
+            # right after prefix+sep (not just "starts with prefix and
+            # contains 'thru' somewhere") — otherwise e.g. patient's prefix
+            # 'patient' would also match patient_problem's
+            # 'patientproblemcode_thru{year}.txt' files.
+            thru_marker = f"{prefix.lower()}{sep}thru"
             for fn in sorted(files):
-                if (fn.lower().startswith(prefix.lower())
-                        and 'thru' in fn.lower()
-                        and fn.endswith('.txt')):
+                if fn.lower().startswith(thru_marker) and fn.endswith('.txt'):
                     candidates.append(fn)
 
         for c in candidates:
@@ -1429,7 +1502,8 @@ class MaudeDatabase:
         (see legacy_cumulative_thru), which all resolve to one shared file, so
         requesting any one of them implies the whole legacy range.
 
-        Cumulative tables (master, patient, problem): the "thru{N}" file fetch
+        Cumulative tables (master, patient, device_problem, patient_problem):
+        the "thru{N}" file fetch
         (_construct_url/_make_file_path) always resolves to whichever historical
         dump is actually latest-available, essentially ignoring the specific
         prior year requested — so requesting any prior year is treated as

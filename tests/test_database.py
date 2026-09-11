@@ -23,19 +23,36 @@ class TestAddYears:
         # Patient fixture has 4 records; all are loaded (no year filter)
         assert result.iloc[0, 0] == 4
 
-    def test_loads_problem(self, db):
-        result = db.query("SELECT COUNT(*) FROM problem")
+    def test_loads_device_problem(self, db):
+        result = db.query("SELECT COUNT(*) FROM device_problem")
         assert result.iloc[0, 0] == 3
 
-    def test_problem_dedup_on_two_file_load(self, tmp_path, data_dir):
-        """Loading thru + current-year problem files should not create duplicates."""
+    def test_device_problem_dedup_on_two_file_load(self, tmp_path, data_dir):
+        """Loading thru + current-year device_problem files should not create duplicates."""
         from datetime import datetime
         from pymaude import MaudeDatabase
         db = MaudeDatabase(str(tmp_path / 'dedup.duckdb'), data_dir=data_dir, verbose=False)
         current_year = datetime.now().year
         # Load prior years (triggers thru file) + current year (triggers foidevproblem.txt)
-        db.add_years([2020, current_year], tables=['problem'])
-        result = db.query("SELECT COUNT(*) FROM problem")
+        db.add_years([2020, current_year], tables=['device_problem'])
+        result = db.query("SELECT COUNT(*) FROM device_problem")
+        # thru has 3 rows, current has 2 rows but 1 overlaps → expect 4 unique rows
+        assert result.iloc[0, 0] == 4
+        db.close()
+
+    def test_loads_patient_problem(self, db):
+        result = db.query("SELECT COUNT(*) FROM patient_problem")
+        assert result.iloc[0, 0] == 3
+
+    def test_patient_problem_dedup_on_two_file_load(self, tmp_path, data_dir):
+        """Loading thru + current-year patient_problem files should not create duplicates."""
+        from datetime import datetime
+        from pymaude import MaudeDatabase
+        db = MaudeDatabase(str(tmp_path / 'dedup_pp.duckdb'), data_dir=data_dir, verbose=False)
+        current_year = datetime.now().year
+        # Load prior years (triggers thru file) + current year (triggers patientproblemcode.txt)
+        db.add_years([2020, current_year], tables=['patient_problem'])
+        result = db.query("SELECT COUNT(*) FROM patient_problem")
         # thru has 3 rows, current has 2 rows but 1 overlaps → expect 4 unique rows
         assert result.iloc[0, 0] == 4
         db.close()
@@ -102,12 +119,13 @@ class TestAddYears:
         assert len(meta) >= 1
         assert meta['checksum'].iloc[0] is not None
 
-    def test_patient_problem_recorded_once_not_per_year(self, db):
-        """patient/problem have no date_column, so a thru-file load must be
-        recorded once (under the _ALL_YEARS sentinel), not once per calendar
-        year — recording it per-year previously multiplied the recorded row
-        count by ~25x and corrupted archive()'s manifest."""
-        for table in ('patient', 'problem'):
+    def test_all_years_sentinel_tables_recorded_once_not_per_year(self, db):
+        """patient/device_problem/patient_problem have no date_column, so a
+        thru-file load must be recorded once (under the _ALL_YEARS
+        sentinel), not once per calendar year — recording it per-year
+        previously multiplied the recorded row count by ~25x and corrupted
+        archive()'s manifest."""
+        for table in ('patient', 'device_problem', 'patient_problem'):
             meta = db.query(
                 f"SELECT year, row_count FROM _load_metadata WHERE table_name = '{table}'"
             )
@@ -116,18 +134,34 @@ class TestAddYears:
             assert meta['year'].iloc[0] == MaudeDatabase._ALL_YEARS
             assert meta['row_count'].iloc[0] == actual
 
-    def test_problem_dedup_metadata_accurate(self, tmp_path, data_dir):
+    def test_device_problem_dedup_metadata_accurate(self, tmp_path, data_dir):
         """After loading both the thru-file and the current-year increment,
         recorded row counts (sentinel entry + current-year entry) should sum
         to exactly the table's actual row count."""
         from datetime import datetime
         db = MaudeDatabase(str(tmp_path / 'dedup2.duckdb'), data_dir=data_dir, verbose=False)
         current_year = datetime.now().year
-        db.add_years([2020, current_year], tables=['problem'])
+        db.add_years([2020, current_year], tables=['device_problem'])
         entries = db.query(
-            "SELECT year, row_count FROM _load_metadata WHERE table_name = 'problem'"
+            "SELECT year, row_count FROM _load_metadata WHERE table_name = 'device_problem'"
         )
-        actual = db.query("SELECT COUNT(*) FROM problem").iloc[0, 0]
+        actual = db.query("SELECT COUNT(*) FROM device_problem").iloc[0, 0]
+        assert len(entries) == 2
+        assert entries['row_count'].sum() == actual == 4
+        db.close()
+
+    def test_patient_problem_dedup_metadata_accurate(self, tmp_path, data_dir):
+        """After loading both the thru-file and the current-year increment,
+        recorded row counts (sentinel entry + current-year entry) should sum
+        to exactly the table's actual row count."""
+        from datetime import datetime
+        db = MaudeDatabase(str(tmp_path / 'dedup2_pp.duckdb'), data_dir=data_dir, verbose=False)
+        current_year = datetime.now().year
+        db.add_years([2020, current_year], tables=['patient_problem'])
+        entries = db.query(
+            "SELECT year, row_count FROM _load_metadata WHERE table_name = 'patient_problem'"
+        )
+        actual = db.query("SELECT COUNT(*) FROM patient_problem").iloc[0, 0]
         assert len(entries) == 2
         assert entries['row_count'].sum() == actual == 4
         db.close()
@@ -256,10 +290,15 @@ class TestEnrich:
         enriched = db.enrich_with_patient_data(results)
         assert 'SEQUENCE_NUMBER_OUTCOME' in enriched.columns
 
-    def test_enrich_problems(self, db):
+    def test_enrich_device_problems(self, db):
         results = db.query_device(product_code='NIQ')
-        enriched = db.enrich_with_problems(results)
+        enriched = db.enrich_with_device_problems(results)
         assert 'DEVICE_PROBLEM_CODE' in enriched.columns
+
+    def test_enrich_patient_problems(self, db):
+        results = db.query_device(product_code='NIQ')
+        enriched = db.enrich_with_patient_problems(results)
+        assert 'PATIENT_PROBLEM_CODE' in enriched.columns
 
     def test_enrich_empty_input(self, db):
         results = db.query_device(brand_name='NONEXISTENT_XYZ')
@@ -323,23 +362,42 @@ class TestFilterByPatient:
             db.filter_by_patient(results, age_min=0)
 
 
-class TestFilterByProblem:
+class TestFilterByDeviceProblem:
     def test_matches_code(self, db):
         results = db.query_device(product_code='NIQ')  # 1001, 1002
-        enriched = db.enrich_with_problems(results)
-        filtered = db.filter_by_problem(enriched, '1546')
+        enriched = db.enrich_with_device_problems(results)
+        filtered = db.filter_by_device_problem(enriched, '1546')
         assert set(filtered['MDR_REPORT_KEY'].astype(str)) == {'1001'}
 
     def test_list_of_codes_is_or(self, db):
         results = db.search_by_device_names('stent')  # 1001, 1002, 1003
-        enriched = db.enrich_with_problems(results)
-        filtered = db.filter_by_problem(enriched, ['1546', '2993'])
+        enriched = db.enrich_with_device_problems(results)
+        filtered = db.filter_by_device_problem(enriched, ['1546', '2993'])
         assert set(filtered['MDR_REPORT_KEY'].astype(str)) == {'1001', '1002', '1003'}
 
     def test_missing_column_raises(self, db):
         results = db.query_device(product_code='NIQ')
         with pytest.raises(ValueError, match='DEVICE_PROBLEM_CODE'):
-            db.filter_by_problem(results, '1546')
+            db.filter_by_device_problem(results, '1546')
+
+
+class TestFilterByPatientProblem:
+    def test_matches_code(self, db):
+        results = db.query_device(product_code='NIQ')  # 1001, 1002
+        enriched = db.enrich_with_patient_problems(results)
+        filtered = db.filter_by_patient_problem(enriched, '1029')
+        assert set(filtered['MDR_REPORT_KEY'].astype(str)) == {'1001'}
+
+    def test_list_of_codes_is_or(self, db):
+        results = db.search_by_device_names('stent')  # 1001, 1002, 1003
+        enriched = db.enrich_with_patient_problems(results)
+        filtered = db.filter_by_patient_problem(enriched, ['1029', '1030'])
+        assert set(filtered['MDR_REPORT_KEY'].astype(str)) == {'1001', '1002', '1003'}
+
+    def test_missing_column_raises(self, db):
+        results = db.query_device(product_code='NIQ')
+        with pytest.raises(ValueError, match='PATIENT_PROBLEM_CODE'):
+            db.filter_by_patient_problem(results, '1029')
 
 
 class TestFilterByNarrative:
@@ -372,12 +430,13 @@ class TestInfo:
         assert 'device' in captured.out
 
     def test_info_does_not_show_sentinel_year(self, db, capsys):
-        """patient/problem are recorded under the internal _ALL_YEARS=0
-        sentinel; info() must not leak that as a displayed year."""
+        """patient/device_problem/patient_problem are recorded under the
+        internal _ALL_YEARS=0 sentinel; info() must not leak that as a
+        displayed year."""
         db.info()
         captured = capsys.readouterr()
         patient_line = next(l for l in captured.out.splitlines() if l.strip().startswith('patient'))
-        assert 'all years' in patient_line
+        assert 'FDA docs:' in patient_line
         assert '(0' not in patient_line
 
 
