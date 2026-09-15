@@ -742,14 +742,23 @@ class MaudeDatabase:
 
     def _load_legacy_cumulative(self, table, legacy_thru, download, force_download, force_reload):
         """
-        Some yearly tables (device) shipped their earliest years bundled into
-        one cumulative file instead of one file per year (e.g. device data
+        Some yearly tables shipped their earliest years bundled into one
+        cumulative file instead of one file per year (e.g. device data
         through 1997 is a single foidevthru1997.zip, not device1991.zip..
-        device1997.zip). Unlike the normal per-year loop, every legacy year
-        resolves to this same file, so it's loaded once here and per-year row
-        counts are recorded via GROUP BY — same approach _process_cumulative_table
-        uses for master/patient/device_problem/patient_problem.
+        device1997.zip; text data through 1995 is a single
+        foitextthru1995.zip). Unlike the normal per-year loop, every legacy
+        year resolves to this same file, so it's loaded once here.
+
+        Tables with a date_column (device) get per-year row counts recorded
+        via GROUP BY on real per-row dates. Tables without one (text's
+        legacy file has no DATE_RECEIVED) can't attribute rows to individual
+        years, so the whole file is recorded once under the _ALL_YEARS
+        sentinel instead — same approach _process_cumulative_table uses for
+        master/patient/device_problem/patient_problem.
         """
+        date_column = TABLE_METADATA[table].get('date_column')
+        checksum_year = legacy_thru if date_column else self._ALL_YEARS
+
         if download:
             self._download_file(table, legacy_thru, force_download)
         fp = self._make_file_path(table, legacy_thru)
@@ -760,21 +769,26 @@ class MaudeDatabase:
 
         cksum = self._checksum(fp)
         source_file = os.path.basename(fp)
-        if not force_reload and self._get_stored_checksum(table, legacy_thru) == cksum:
+        if not force_reload and self._get_stored_checksum(table, checksum_year) == cksum:
             if self.verbose:
                 print(f'  {table} (thru {legacy_thru}): up to date, skipping')
             return
 
         self._load_yearly(table, legacy_thru, fp)
 
-        date_column = TABLE_METADATA[table].get('date_column', 'DATE_RECEIVED')
-        covered_rows = self.conn.execute(
-            f'SELECT year("{date_column}") AS y, COUNT(*) FROM {table} '
-            f"WHERE source_file = ? GROUP BY y", [source_file]
-        ).fetchall()
-        for y, c in covered_rows:
-            if y is not None:
-                self._record_load(table, y, source_file, cksum, c)
+        if date_column:
+            covered_rows = self.conn.execute(
+                f'SELECT year("{date_column}") AS y, COUNT(*) FROM {table} '
+                f"WHERE source_file = ? GROUP BY y", [source_file]
+            ).fetchall()
+            for y, c in covered_rows:
+                if y is not None:
+                    self._record_load(table, y, source_file, cksum, c)
+        else:
+            rows = self.conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE source_file = ?", [source_file]
+            ).fetchone()[0]
+            self._record_load(table, self._ALL_YEARS, source_file, cksum, rows)
 
     def _process_cumulative_table(self, table, years, meta, download, force_download, force_reload):
         """
@@ -1520,9 +1534,10 @@ class MaudeDatabase:
         Years `table` would end up covering after loading `years_for_table`.
 
         Yearly tables (device, text): each year is an independent file, so this
-        is just the requested years themselves — except device's legacy years
-        (see legacy_cumulative_thru), which all resolve to one shared file, so
-        requesting any one of them implies the whole legacy range.
+        is just the requested years themselves — except a table's legacy years
+        (see legacy_cumulative_thru, set for both device and text), which all
+        resolve to one shared file, so requesting any one of them implies the
+        whole legacy range.
 
         Cumulative tables (master, patient, device_problem, patient_problem):
         the "thru{N}" file fetch

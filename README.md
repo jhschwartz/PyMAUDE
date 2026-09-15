@@ -107,10 +107,10 @@ A manuscript describing PyMAUDE is in preparation. Citation details will be adde
 
 ```bibtex
 @article{pymaude,
-  title   = {},
-  author  = {Schwartz, Jacob and others},
+  title   = {PyMAUDE: a Python library for local and reproducible analysis of the FDA Manufacturer and User Facility Device Experience (MAUDE) database},
+  author  = {Schwartz, Jacob; Almoussa, Maya; Blattman, Nicole; Makary, Mina S},
   journal = {},
-  year    = {},
+  year    = {2026},
   doi     = {}
 }
 ```

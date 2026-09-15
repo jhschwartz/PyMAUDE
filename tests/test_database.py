@@ -18,6 +18,64 @@ class TestAddYears:
         result = db.query("SELECT COUNT(*) FROM text")
         assert result.iloc[0, 0] == 4
 
+    def test_loads_text_legacy_cumulative(self, tmp_path):
+        """text's earliest years (pre-1996) ship as one shared cumulative
+        file (foitextthru1995.zip), the same legacy_cumulative_thru pattern
+        device uses for foidevthru1997.zip. Requesting a pre-1996 year
+        should route through _load_legacy_cumulative and load the file."""
+        d = tmp_path / 'maude_data'
+        d.mkdir()
+        (d / 'foitextthru1995.txt').write_text(
+            'MDR_REPORT_KEY|MDR_TEXT_KEY|TEXT_TYPE_CODE|PATIENT_SEQUENCE_NUMBER|DATE_REPORT|FOI_TEXT\n'
+            '17|34|D|1||EARLY DEVICE MALFUNCTION REPORT FROM PRE-1996 DATA.\n'
+            '32|56|D|1||PACEMAKER ISSUE REPORTED IN LEGACY FORMAT.\n'
+        )
+        db = MaudeDatabase(str(tmp_path / 'legacy_text.duckdb'), data_dir=str(d), verbose=False)
+        db.add_years(1990, tables=['text'])
+        assert db._table_exists('text')
+        result = db.query("SELECT COUNT(*) FROM text")
+        assert result.iloc[0, 0] == 2
+        db.close()
+
+    def test_text_legacy_recorded_under_sentinel(self, tmp_path):
+        """text's legacy file has no DATE_RECEIVED (unlike device's), so its
+        rows can't be attributed to individual years via GROUP BY — must be
+        recorded once under the _ALL_YEARS sentinel instead, mirroring
+        patient/device_problem/patient_problem, not crash trying to select a
+        nonexistent date column."""
+        d = tmp_path / 'maude_data'
+        d.mkdir()
+        (d / 'foitextthru1995.txt').write_text(
+            'MDR_REPORT_KEY|MDR_TEXT_KEY|TEXT_TYPE_CODE|PATIENT_SEQUENCE_NUMBER|DATE_REPORT|FOI_TEXT\n'
+            '17|34|D|1||EARLY DEVICE MALFUNCTION REPORT FROM PRE-1996 DATA.\n'
+        )
+        db = MaudeDatabase(str(tmp_path / 'legacy_text2.duckdb'), data_dir=str(d), verbose=False)
+        db.add_years(1990, tables=['text'])
+        meta = db.query("SELECT year, row_count FROM _load_metadata WHERE table_name = 'text'")
+        assert len(meta) == 1
+        assert meta['year'].iloc[0] == MaudeDatabase._ALL_YEARS
+        assert meta['row_count'].iloc[0] == 1
+        db.close()
+
+    def test_text_legacy_checksum_skip_on_second_load(self, tmp_path, capsys):
+        """Regression test: the up-to-date checksum short-circuit must be
+        keyed by the same sentinel _record_load actually stores under for a
+        no-date_column table, or it would never recognize the legacy file as
+        already loaded and reprocess it on every add_years() call."""
+        d = tmp_path / 'maude_data'
+        d.mkdir()
+        (d / 'foitextthru1995.txt').write_text(
+            'MDR_REPORT_KEY|MDR_TEXT_KEY|TEXT_TYPE_CODE|PATIENT_SEQUENCE_NUMBER|DATE_REPORT|FOI_TEXT\n'
+            '17|34|D|1||EARLY DEVICE MALFUNCTION REPORT FROM PRE-1996 DATA.\n'
+        )
+        db = MaudeDatabase(str(tmp_path / 'legacy_text3.duckdb'), data_dir=str(d), verbose=True)
+        db.add_years(1990, tables=['text'])
+        capsys.readouterr()  # discard first-load output
+        db.add_years(1990, tables=['text'])
+        captured = capsys.readouterr()
+        assert 'up to date, skipping' in captured.out
+        db.close()
+
     def test_loads_patient(self, db):
         result = db.query("SELECT COUNT(*) FROM patient")
         # Patient fixture has 4 records; all are loaded (no year filter)

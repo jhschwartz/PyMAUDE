@@ -29,7 +29,13 @@ TABLE_METADATA = {
         'file_prefix': 'foitext',
         'pattern_type': 'yearly',           # foitext{year}.zip
         'current_year_prefix': 'foitext',
-        'start_year': 1996,                 # foitextthru1995.zip (pre-1996, cumulative) not yet supported
+        'start_year': 1984,                 # FDA states 1984-1995 for foitextthru1995.zip
+        'legacy_cumulative_thru': 1995,     # 1984-1995 ship as one foitextthru1995.zip;
+                                             # 1996+ as foitext{year}.zip. Verified against the
+                                             # real file: it has a header (unlike device's legacy
+                                             # file) and no DATE_RECEIVED column, so its rows can't
+                                             # be attributed to individual years — recorded under
+                                             # the _ALL_YEARS sentinel in _load_legacy_cumulative.
         'description': 'Event narrative text (FOI_TEXT)',
     },
     'patient': {
