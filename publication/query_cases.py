@@ -21,11 +21,11 @@ QUERY_DEVICE_CASES = [
     },
     {
         'label': 'generic name exact',
-        'kwargs': {'generic_name': 'VENOUS STENT'},
+        'kwargs': {'generic_name': 'BILIARY STENT'},
     },
     {
         'label': 'manufacturer + product code',
-        'kwargs': {'manufacturer_name': 'BOSTON SCIENTIFIC CORPORATION', 'product_code': 'NIQ'},
+        'kwargs': {'manufacturer_name': 'BOSTON SCIENTIFIC', 'product_code': 'NIQ'},
     },
 ]
 
@@ -38,3 +38,40 @@ DEVICE_NAME_SEARCH_CASES = [
     {'label': 'OR of two terms', 'criteria': ['argon', 'cleaner']},
     {'label': 'AND-within-OR (compound)', 'criteria': [['argon', 'cleaner'], 'angiojet']},
 ]
+
+GROUPED_CASE = [{
+    'label': 'venous vs arterial thrombectomy cohorts', 
+    'criteria': {
+        'venous thrombectomy': [
+            ['venous', 'thrombectomy'],     # (venous AND thrombectomy)...
+            ['venous', 'angiojet'],         # OR (venous AND angiojet)...
+            ['venous', 'argon', 'cleaner'], # OR (venous AND argon AND cleaner)...
+            ['vein', 'thrombectomy'],       # ...etc.
+            ['vein', 'angiojet'],
+            ['vein', 'argon', 'cleaner'],
+            ['dvt', 'thrombectomy'],
+            ['dvt', 'angiojet'],
+            ['dvt', 'argon', 'cleaner']
+        ],
+
+        # next group matches only records not matched by first group
+        'arterial thrombectomy': [ 
+            ['arterial', 'thrombectomy'],
+            ['arterial', 'angiojet'],
+            ['arterial', 'argon', 'cleaner'],
+            ['artery', 'thrombectomy'],
+            ['artery', 'angiojet'],
+            ['artery', 'argon', 'cleaner'],
+            ['coronary', 'thrombectomy'],
+            ['coronary', 'angiojet'],
+            ['coronary', 'argon', 'cleaner']
+        ], 
+
+        # third group matches only records not matched by first two groups
+        'ambiguous thrombectomy': [ 
+            ['thrombectomy'],
+            ['angiojet'],
+            ['argon', 'cleaner']
+        ] 
+    }
+}]

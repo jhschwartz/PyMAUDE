@@ -7,7 +7,7 @@ import time
 import pandas as pd
 
 from pymaude import MaudeDatabase
-from query_cases import QUERY_DEVICE_CASES, DEVICE_NAME_SEARCH_CASES
+from query_cases import QUERY_DEVICE_CASES, DEVICE_NAME_SEARCH_CASES, GROUPED_CASE
 
 DB_PATH      = '../maude.duckdb'
 DATA_DIR     = '../maude_data'
@@ -28,6 +28,7 @@ def time_call(fn, *args, **kwargs):
 def run(db):
     rows = []
 
+    print('timing simple queries...')
     for case in QUERY_DEVICE_CASES:
         n, times = time_call(db.query_device, **case['kwargs'])
         rows.append({
@@ -38,8 +39,9 @@ def run(db):
             'min_s': min(times),
             'max_s': max(times),
         })
-        print(f'query_device — {case["label"]}: n={n}, median={statistics.median(times):.3f}s')
+        print(f'query_device — {case["label"]}: n={n}, median={statistics.median(times):.3f}s, [{min(times):.3f},{max(times):.3f}]')
 
+    print('timing compund queries...')
     for case in DEVICE_NAME_SEARCH_CASES:
         n, times = time_call(db.search_by_device_names, case['criteria'])
         rows.append({
@@ -50,7 +52,20 @@ def run(db):
             'min_s': min(times),
             'max_s': max(times),
         })
-        print(f'search_by_device_names — {case["label"]}: n={n}, median={statistics.median(times):.3f}s')
+        print(f'search_by_device_names — {case["label"]}: n={n}, median={statistics.median(times):.3f}s, [{min(times):.3f},{max(times):.3f}]')
+
+    print('timing grouped queries...')
+    for case in GROUPED_CASE:
+            n, times = time_call(db.search_by_device_names, case['criteria'])
+            rows.append({
+                'function': 'search_by_device_names',
+                'label': case['label'],
+                'n_results': n,
+                'median_s': statistics.median(times),
+                'min_s': min(times),
+                'max_s': max(times),
+            })
+            print(f'Grouped case of search_by_device_names — {case["label"]}: n={n}, median={statistics.median(times):.3f}s, [{min(times):.3f},{max(times):.3f}]')
 
     return pd.DataFrame(rows)
 
@@ -62,4 +77,4 @@ if __name__ == '__main__':
 
     table.to_csv('benchmark_query_results.csv', index=False)
     print('\nWrote benchmark_query_results.csv')
-    print(f'\nRange: {table["median_s"].min():.3f}s to {table["median_s"].max():.3f}s')
+    print(f'\nRange of medians: {table["median_s"].min():.3f}s to {table["median_s"].max():.3f}s')

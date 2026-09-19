@@ -16,7 +16,7 @@ N_REPLICATES = 5
 
 
 def build(download):
-    db = MaudeDatabase(DB_PATH, data_dir=DATA_DIR, verbose=True, memory_limit='2GB')
+    db = MaudeDatabase(DB_PATH, data_dir=DATA_DIR, verbose=True, memory_limit='4GB')
     t0 = time.perf_counter()
     db.add_years(YEARS, tables=TABLES, download=download)
     elapsed = time.perf_counter() - t0
@@ -53,7 +53,7 @@ if __name__ == '__main__':
 
     print("--------------------------")
 
-    os.remove(DB_PATH)
+#    os.remove(DB_PATH)
 
     print(f"\nBeginning {N_REPLICATES} replicates (load only, from cached source files)...")
     replicates = []
