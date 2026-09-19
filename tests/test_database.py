@@ -1,6 +1,5 @@
 """Tests for MaudeDatabase core functionality."""
 
-import os
 import pytest
 from pymaude import MaudeDatabase
 
