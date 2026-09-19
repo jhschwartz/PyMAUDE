@@ -182,7 +182,7 @@ def openfda_query_keys(query):
     return keys
 
 
-def compare_queries(db):
+def compare_queries(db): 
     print('\n=== Part 2: query-level agreement ===')
     rows = []
     for case in QUERY_DEVICE_CASES:
@@ -199,6 +199,8 @@ def compare_queries(db):
             'label': case['label'],
             'n_pymaude': len(local_keys),
             'n_openfda': len(openfda_keys),
+            'n_union': len(set.union(local_keys, openfda_keys)),
+            'n_intersection': len(set.intersection(local_keys, openfda_keys)),
             'identical': identical,
             'n_only_pymaude': len(local_keys - openfda_keys),
             'n_only_openfda': len(openfda_keys - local_keys),
