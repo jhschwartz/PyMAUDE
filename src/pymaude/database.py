@@ -15,8 +15,6 @@ Usage:
 
 import os
 import re
-import json
-import shutil
 import zipfile
 import hashlib
 from collections import defaultdict
@@ -26,6 +24,7 @@ import duckdb
 import pandas as pd
 import requests
 
+from .archive import write_archive, restore_archive
 from .metadata import TABLE_METADATA, FDA_BASE_URL
 
 
@@ -629,90 +628,76 @@ class MaudeDatabase:
 
     # ── Public: archiving ───────────────────────────────────────────────────────
 
-    def archive(self, output_dir, include_raw=False):
+    def archive(self, output_dir, include_raw=True, compression_level=3,
+                resume=False, overwrite=False):
         """
-        Prepare a citable snapshot of this database (e.g. for Zenodo upload).
+        Write a citable, verifiable snapshot of this database to a directory.
 
-        Checkpoints and copies the DuckDB file, and writes a manifest.json
-        recording, per loaded table/year: source file, SHA-256 checksum, row
-        count, and load timestamp (from _load_metadata) — plus the DuckDB and
-        pymaude versions used to build it, so the snapshot can be reproduced
-        or verified later.
+        The archive is one Parquet file per loaded table (zstd-compressed),
+        plus raw.tar (the FDA source zips, byte-identical) and a
+        manifest.json recording each file's SHA-256, per-table row counts,
+        per-source-file load records (from _load_metadata), and the DuckDB
+        and pymaude versions. The manifest is written last, so its presence
+        means the archive is complete. Restore with MaudeDatabase.from_archive();
+        check integrity with pymaude.verify_archive().
 
         Args:
-            output_dir: Directory to write the archive into (created if missing).
-            include_raw: If True, also copy the raw MAUDE source files referenced
-                in _load_metadata (from data_dir) into an output_dir/raw/ subfolder.
+            output_dir: Directory to write into (created if missing). Must be
+                empty unless resume or overwrite is set.
+            include_raw: Bundle the FDA zips behind every loaded source file
+                (found in data_dir) into raw.tar. Source files with no zip in
+                data_dir are skipped with a warning and listed in the
+                manifest under raw.missing.
+            compression_level: zstd level for the Parquet files, 1-22.
+                3 is fast and near the size of much slower levels here.
+            resume: Continue an interrupted archive: skip Parquet files whose
+                row count already matches the table, and skip raw.tar if it
+                already holds exactly the expected zips. Files are written
+                under a .tmp name and renamed, so any file that exists under
+                its final name is complete. Note that a matching row count is
+                the only staleness check — use overwrite if the data changed.
+            overwrite: Replace whatever is in output_dir.
 
         Returns:
             Path to the written manifest.json.
         """
-        import pymaude
+        return write_archive(
+            self, output_dir, include_raw=include_raw, compression_level=compression_level,
+            resume=resume, overwrite=overwrite,
+        )
 
-        os.makedirs(output_dir, exist_ok=True)
-        self.conn.execute("CHECKPOINT")
+    @classmethod
+    def from_archive(cls, archive_dir, db_path, data_dir='./maude_data', verify=True,
+                     restore_raw=False, memory_limit='4GB', verbose=True):
+        """
+        Build a new database from an archive written by archive().
 
-        db_filename = os.path.basename(self.db_path)
-        db_dest = os.path.join(output_dir, db_filename)
-        shutil.copy2(self.db_path, db_dest)
+        Imports each Parquet file into a table, restores _load_metadata from
+        the manifest, and rebuilds the join-key indexes. The restored DuckDB
+        file is much larger than the archive (DuckDB stores the narrative
+        text uncompressed) — expect roughly 50 GB free space to be needed for
+        a full MAUDE database.
 
-        rows = self.conn.execute(
-            "SELECT table_name, year, source_file, checksum, row_count, loaded_at "
-            "FROM _load_metadata ORDER BY table_name, year"
-        ).fetchall()
+        Args:
+            archive_dir: Directory containing manifest.json.
+            db_path: Path of the DuckDB file to create. Must not already hold
+                MAUDE tables.
+            data_dir: Data directory for the returned database; also where
+                restore_raw extracts to.
+            verify: Check every file's SHA-256 against the manifest first, and
+                every table's row count after import.
+            restore_raw: Also extract raw.tar's zips (and unzip them) into
+                data_dir, so a later add_years(..., download=True) reuses them
+                instead of downloading.
+            memory_limit: DuckDB memory cap for the import (default 4GB).
 
-        tables = [
-            {
-                'table': r[0],
-                'year': r[1],
-                'source_file': r[2],
-                'sha256': r[3],
-                'row_count': r[4],
-                'loaded_at': r[5].isoformat(),
-            }
-            for r in rows
-        ]
-
-        manifest = {
-            'generated_at': datetime.now().isoformat(),
-            'pymaude_version': pymaude.__version__,
-            'duckdb_version': duckdb.__version__,
-            'checksum_algorithm': 'sha256',
-            'database': {
-                'filename': db_filename,
-                'sha256': self._checksum(db_dest),
-                'size_bytes': os.path.getsize(db_dest),
-            },
-            'tables': tables,
-        }
-
-        if include_raw:
-            raw_dir = os.path.join(output_dir, 'raw')
-            os.makedirs(raw_dir, exist_ok=True)
-            raw_files = []
-            for source_file in sorted({r[2] for r in rows if r[2]}):
-                src = os.path.join(self.data_dir, source_file)
-                if not os.path.exists(src):
-                    if self.verbose:
-                        print(f'  Skipping raw file (not found): {source_file}')
-                    continue
-                dest = os.path.join(raw_dir, source_file)
-                shutil.copy2(src, dest)
-                raw_files.append({'filename': source_file, 'sha256': self._checksum(dest)})
-            manifest['raw_files'] = raw_files
-
-        manifest_path = os.path.join(output_dir, 'manifest.json')
-        with open(manifest_path, 'w') as f:
-            json.dump(manifest, f, indent=2)
-
-        if self.verbose:
-            print(f'Archive written to {output_dir}')
-            print(f'  Database : {db_filename} ({manifest["database"]["size_bytes"]:,} bytes)')
-            print(f'  Tables   : {len(tables)} entries')
-            if include_raw:
-                print(f'  Raw files: {len(manifest["raw_files"])}')
-
-        return manifest_path
+        Returns:
+            The open MaudeDatabase.
+        """
+        return restore_archive(
+            archive_dir, db_path, data_dir=data_dir, verify=verify,
+            restore_raw=restore_raw, memory_limit=memory_limit, verbose=verbose,
+        )
 
     # ── Private: loading orchestration ───────────────────────────────────────
 

@@ -3,6 +3,7 @@
 # MIT License
 
 from .database import MaudeDatabase
+from .archive import verify_archive, extract_raw
 from .metadata import TABLE_METADATA, FDA_BASE_URL
 
 __version__ = '0.2.0'
@@ -11,4 +12,6 @@ __all__ = [
     'MaudeDatabase',
     'TABLE_METADATA',
     'FDA_BASE_URL',
+    'verify_archive',
+    'extract_raw',
 ]
