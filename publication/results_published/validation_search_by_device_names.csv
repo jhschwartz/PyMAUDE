@@ -1,0 +1,6 @@
+label,n,identical
+single term,5412,True
+OR of two terms,8376,True
+AND-within-OR (compound),2115,True
+union identity (argon OR cleaner),8376,True
+intersection identity (argon AND cleaner),47,True

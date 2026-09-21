@@ -1,0 +1,6 @@
+label,n_pymaude,n_openfda,n_union,n_intersection,identical,n_only_pymaude,n_only_openfda
+product code only,128929,128932,128932,128929,FALSE,0,3
+product code + date range,53027,53027,53027,53027,TRUE,0,0
+brand name exact,5819,5819,5819,5819,TRUE,0,0
+generic name exact,777,774,777,774,FALSE,3,0
+manufacturer + product code,10673,10673,10673,10673,TRUE,0,0
