@@ -85,6 +85,28 @@ class TestArchive:
         by_zip = {z['name']: z['source_files'] for z in manifest['raw']['zips']}
         assert by_zip['device_release.zip'] == ['device2020.txt']
 
+    def test_raw_tar_includes_per_year_zip_alongside_legacy_zip(self, tmp_path):
+        """A legacy file with rows dated in a later year must not hide that
+        year's own per-year zip from raw.tar."""
+        d = tmp_path / 'maude_data'
+        d.mkdir()
+        hdr = ('MDR_REPORT_KEY|BRAND_NAME|GENERIC_NAME|MANUFACTURER_D_NAME|'
+               'DEVICE_REPORT_PRODUCT_CODE|DATE_RECEIVED\n')
+        contents = {
+            'foidevthru1997.txt': hdr + '1|A|B|C|X|03/01/1997\n2|A|B|C|X|03/01/2012\n',
+            'device2012.txt': hdr + '3|A|B|C|X|05/01/2012\n',
+        }
+        for fn, text in contents.items():
+            (d / fn).write_text(text)
+            with zipfile.ZipFile(d / (fn[:-4] + '.zip'), 'w') as z:
+                z.write(d / fn, arcname=fn)
+        db = MaudeDatabase(str(tmp_path / 'legacy.duckdb'), data_dir=str(d), verbose=False)
+        db.add_years([1997, 2012], tables=['device'])
+        manifest = json.loads(open(db.archive(str(tmp_path / 'archive'))).read())
+        db.close()
+        assert {z['name'] for z in manifest['raw']['zips']} == {
+            'foidevthru1997.zip', 'device2012.zip'}
+
     def test_missing_zip_is_recorded_not_fatal(self, db, zipped_data, data_dir, tmp_path):
         os.remove(os.path.join(data_dir, 'device_release.zip'))
         out = tmp_path / 'archive'

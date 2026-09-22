@@ -36,6 +36,37 @@ class TestAddYears:
         assert result.iloc[0, 0] == 2
         db.close()
 
+    def test_device_legacy_stray_years_keep_per_year_records(self, tmp_path):
+        """foidevthru1997.txt has a few rows dated after 1997. Those years
+        must stay attributed to their own per-year file, not the legacy file."""
+        d = tmp_path / 'maude_data'
+        d.mkdir()
+        hdr = ('MDR_REPORT_KEY|BRAND_NAME|GENERIC_NAME|MANUFACTURER_D_NAME|'
+               'DEVICE_REPORT_PRODUCT_CODE|DATE_RECEIVED\n')
+        (d / 'foidevthru1997.txt').write_text(
+            hdr + '1|A|B|C|X|03/01/1996\n2|A|B|C|X|03/01/1997\n3|A|B|C|X|03/01/2012\n')
+        (d / 'device2012.txt').write_text(
+            hdr + '4|A|B|C|X|05/01/2012\n5|A|B|C|X|06/01/2012\n')
+        db = MaudeDatabase(str(tmp_path / 'stray.duckdb'), data_dir=str(d), verbose=False)
+        db.add_years([1996, 2012], tables=['device'])
+        rows = db.conn.execute(
+            "SELECT year, source_file, row_count FROM _load_metadata "
+            "WHERE table_name = 'device' ORDER BY year").fetchall()
+        assert rows == [(1996, 'foidevthru1997.txt', 1),
+                        (1997, 'foidevthru1997.txt', 2),  # 1997 row + folded-in 2012 stray
+                        (2012, 'device2012.txt', 2)]
+        assert sum(r[2] for r in rows) == db.query("SELECT COUNT(*) FROM device").iloc[0, 0]
+        db.close()
+
+        # Reverse order: legacy loaded first, per-year file added later
+        db = MaudeDatabase(str(tmp_path / 'stray2.duckdb'), data_dir=str(d), verbose=False)
+        db.add_years(1996, tables=['device'])
+        db.add_years(2012, tables=['device'])
+        assert db.conn.execute(
+            "SELECT source_file FROM _load_metadata WHERE table_name = 'device' AND year = 2012"
+        ).fetchone()[0] == 'device2012.txt'
+        db.close()
+
     def test_text_legacy_recorded_under_sentinel(self, tmp_path):
         """text's legacy file has no DATE_RECEIVED (unlike device's), so its
         rows can't be attributed to individual years via GROUP BY — must be

@@ -766,9 +766,26 @@ class MaudeDatabase:
                 f'SELECT year("{date_column}") AS y, COUNT(*) FROM {table} '
                 f"WHERE source_file = ? GROUP BY y", [source_file]
             ).fetchall()
+            # A few rows in the legacy file carry dates after legacy_thru
+            # (e.g. foidevthru1997.txt has rows dated 1998/2012). Those years
+            # belong to their own per-year files, and _load_metadata holds one
+            # record per (table, year), so recording them here would overwrite
+            # the per-year file's record. Fold them into the legacy_thru record
+            # instead, so recorded row counts still sum to the table's.
+            per_year = defaultdict(int)
+            beyond = []
             for y, c in covered_rows:
-                if y is not None:
-                    self._record_load(table, y, source_file, cksum, c)
+                if y is None:
+                    continue
+                if y > legacy_thru:
+                    beyond.append((y, c))
+                per_year[min(y, legacy_thru)] += c
+            for y, c in per_year.items():
+                self._record_load(table, y, source_file, cksum, c)
+            if beyond and self.verbose:
+                detail = ', '.join(f'{c:,} row(s) in {y}' for y, c in sorted(beyond))
+                print(f'  Warning: {source_file} contains data after {legacy_thru}: '
+                      f'{detail}; recorded under {legacy_thru}')
         else:
             rows = self.conn.execute(
                 f"SELECT COUNT(*) FROM {table} WHERE source_file = ?", [source_file]
