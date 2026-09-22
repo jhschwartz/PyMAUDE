@@ -142,3 +142,8 @@ MIT — see [LICENSE](./LICENSE).
 ## Contact
 
 Jacob Schwartz — jaschwa@umich.edu
+
+
+## Acknowledgments
+
+This library was developed using a "Human-in-the-Loop" AI-augmented workflow. The human author conceptualized the project, designed the software architecture, and provided specific algorithmic logic. While Claude Code was used for code synthesis, bug-hunting, and documentation, the human author reviewed, refined, and approved every line of code to ensure scientific accuracy and technical integrity.
