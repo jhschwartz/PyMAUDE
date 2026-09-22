@@ -36,6 +36,7 @@ SEARCH_TERMS = ['argon', 'cleaner', 'angiojet']
 DEVICE_NAME_SEARCH_CASES = [
     {'label': 'single term', 'criteria': 'argon'},
     {'label': 'OR of two terms', 'criteria': ['argon', 'cleaner']},
+    {'label': 'AND of two terms', 'criteria': [['argon', 'cleaner']]},
     {'label': 'AND-within-OR (compound)', 'criteria': [['argon', 'cleaner'], 'angiojet']},
 ]
 

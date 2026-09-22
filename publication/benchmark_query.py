@@ -33,19 +33,19 @@ def time_call(fn, *args, **kwargs):
 def run(db):
     rows = []
 
-    print('timing simple queries...')
-    for case in QUERY_DEVICE_CASES:
-        n_rows, n_reports, times = time_call(db.query_device, **case['kwargs'])
-        rows.append({
-            'function': 'query_device',
-            'label': case['label'],
-            'n_rows': n_rows,
-            'n_reports': n_reports,
-            'median_s': statistics.median(times),
-            'min_s': min(times),
-            'max_s': max(times),
-        })
-        print(f'query_device — {case["label"]}: reports={n_reports}, rows={n_rows}, median={statistics.median(times):.3f}s, [{min(times):.3f},{max(times):.3f}]')
+    # print('timing simple queries...')
+    # for case in QUERY_DEVICE_CASES:
+    #     n_rows, n_reports, times = time_call(db.query_device, **case['kwargs'])
+    #     rows.append({
+    #         'function': 'query_device',
+    #         'label': case['label'],
+    #         'n_rows': n_rows,
+    #         'n_reports': n_reports,
+    #         'median_s': statistics.median(times),
+    #         'min_s': min(times),
+    #         'max_s': max(times),
+    #     })
+    #     print(f'query_device — {case["label"]}: reports={n_reports}, rows={n_rows}, median={statistics.median(times):.3f}s, [{min(times):.3f},{max(times):.3f}]')
 
     print('timing compund queries...')
     for case in DEVICE_NAME_SEARCH_CASES:
