@@ -195,8 +195,12 @@ def compare_queries(db):
         identical = local_keys == openfda_keys
         print(f'  {case["label"]}: local={len(local_keys)} openfda={len(openfda_keys)} '
               f'identical={identical}')
+        print(f'    query_device kwargs: {json.dumps(case["kwargs"])}')
+        print(f'    openFDA query:       {query}')
         rows.append({
             'label': case['label'],
+            'query_device_kwargs': json.dumps(case['kwargs']),
+            'openfda_query': query,
             'n_pymaude': len(local_keys),
             'n_openfda': len(openfda_keys),
             'n_union': len(set.union(local_keys, openfda_keys)),
@@ -249,8 +253,10 @@ def compare_search_by_device_names(db):
         library_keys = set(db.search_by_device_names(case['criteria'])['MDR_REPORT_KEY'].astype(str))
         reference_keys = reference_search(db, case['criteria'])
         identical = library_keys == reference_keys
-        print(f'  {case["label"]}: n={len(library_keys)} identical={identical}')
-        rows.append({'label': case['label'], 'n': len(library_keys), 'identical': identical})
+        criteria = json.dumps(case['criteria'])
+        print(f'  {case["label"]}: criteria={criteria} n={len(library_keys)} identical={identical}')
+        rows.append({'label': case['label'], 'criteria': criteria,
+                     'n': len(library_keys), 'identical': identical})
 
     # Compound identity checks: OR of terms == union of single-term results;
     # a single AND-group == intersection of single-term results.
@@ -258,18 +264,29 @@ def compare_search_by_device_names(db):
         term: set(db.search_by_device_names(term)['MDR_REPORT_KEY'].astype(str))
         for term in SEARCH_TERMS
     }
-    a, b = SEARCH_TERMS[0], SEARCH_TERMS[1]
+    a, b, c = SEARCH_TERMS[0], SEARCH_TERMS[1], SEARCH_TERMS[2]
 
-    union_result = set(db.search_by_device_names([a, b])['MDR_REPORT_KEY'].astype(str))
-    union_identical = union_result == (singles[a] | singles[b])
-    print(f'  union identity ({a} OR {b}): identical={union_identical}')
-    rows.append({'label': f'union identity ({a} OR {b})', 'n': len(union_result), 'identical': union_identical})
+    # Union uses a different pair (a, c) than the OR case above (a, b), so the
+    # two checks don't report the same result set.
+    union_result = set(db.search_by_device_names([a, c])['MDR_REPORT_KEY'].astype(str))
+    union_identical = union_result == (singles[a] | singles[c])
+    union_criteria = json.dumps([a, c])
+    print(f'  union identity ({a} OR {c}): criteria={union_criteria} identical={union_identical}')
+    rows.append({
+        'label': f'union identity ({a} OR {c})',
+        'criteria': union_criteria,
+        'n': len(union_result),
+        'identical': union_identical,
+    })
 
     intersection_result = set(db.search_by_device_names([[a, b]])['MDR_REPORT_KEY'].astype(str))
     intersection_identical = intersection_result == (singles[a] & singles[b])
-    print(f'  intersection identity ({a} AND {b}): identical={intersection_identical}')
+    intersection_criteria = json.dumps([[a, b]])
+    print(f'  intersection identity ({a} AND {b}): criteria={intersection_criteria} '
+          f'identical={intersection_identical}')
     rows.append({
         'label': f'intersection identity ({a} AND {b})',
+        'criteria': intersection_criteria,
         'n': len(intersection_result),
         'identical': intersection_identical,
     })

@@ -1,6 +1,6 @@
-label,n_pymaude,n_openfda,n_union,n_intersection,identical,n_only_pymaude,n_only_openfda
-product code only,128929,128932,128932,128929,FALSE,0,3
-product code + date range,53027,53027,53027,53027,TRUE,0,0
-brand name exact,5819,5819,5819,5819,TRUE,0,0
-generic name exact,777,774,777,774,FALSE,3,0
-manufacturer + product code,10673,10673,10673,10673,TRUE,0,0
+label,query_device_kwargs,openfda_query,n_pymaude,n_openfda,n_union,n_intersection,identical,n_only_pymaude,n_only_openfda
+product code only,"{""product_code"": ""NIQ""}","device.device_report_product_code:""NIQ""",128929,128932,128932,128929,False,0,3
+product code + date range,"{""product_code"": ""NIQ"", ""start_date"": ""2015-01-01"", ""end_date"": ""2023-12-31""}","device.device_report_product_code:""NIQ"" AND date_received:[20150101 TO 20231231]",53027,53027,53027,53027,True,0,0
+brand name exact,"{""brand_name"": ""RESOLUTE ONYX RX""}","device.brand_name.exact:""RESOLUTE ONYX RX""",5819,5819,5819,5819,True,0,0
+generic name exact,"{""generic_name"": ""BILIARY STENT""}","device.generic_name.exact:""BILIARY STENT""",777,774,777,774,False,3,0
+manufacturer + product code,"{""manufacturer_name"": ""BOSTON SCIENTIFIC"", ""product_code"": ""NIQ""}","device.manufacturer_d_name.exact:""BOSTON SCIENTIFIC"" AND device.device_report_product_code:""NIQ""",10673,10673,10673,10673,True,0,0

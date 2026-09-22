@@ -1,6 +1,6 @@
-label,n,identical
-single term,5412,True
-OR of two terms,8376,True
-AND-within-OR (compound),2115,True
-union identity (argon OR cleaner),8376,True
-intersection identity (argon AND cleaner),47,True
+label,criteria,n,identical
+single term,"""argon""",5412,True
+OR of two terms,"[""argon"", ""cleaner""]",8376,True
+AND-within-OR (compound),"[[""argon"", ""cleaner""], ""angiojet""]",2115,True
+union identity (argon OR angiojet),"[""argon"", ""angiojet""]",7480,True
+intersection identity (argon AND cleaner),"[[""argon"", ""cleaner""]]",47,True

@@ -1,0 +1,23 @@
+case,key,direction,classification,local_date_received,live_n_devices,live_date_received,live_date_added
+product code only,2067908,only_openfda,"DEVICE_ROW_MISSING_LOCALLY (master present, device row absent in pymaude)",2011-04-19,1.0,,
+product code only,23787976,only_openfda,"DEVICE_ROW_MISSING_LOCALLY (master present, device row absent in pymaude)",2009-12-23,1.0,,
+product code only,25854490,only_openfda,MASTER_MISSING_LOCALLY (full-export-style gap),,,20060331,
+generic name exact,25690336,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-07-02,,20260702,20260702
+generic name exact,25690349,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-07-02,,20260702,20260702
+generic name exact,25690478,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-07-02,,20260702,20260702
+generic name exact,25701248,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-07-03,,20260703,20260703
+generic name exact,25715288,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-07-06,,20260706,20260706
+generic name exact,50067237,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-07-29,,20260729,20260729
+generic name exact,50137961,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-08-05,,20260805,20260805
+generic name exact,50137963,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-08-05,,20260805,20260805
+generic name exact,50218378,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-08-12,,20260812,20260812
+generic name exact,50253241,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-08-14,,20260814,20260814
+generic name exact,50269753,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-08-17,,20260817,20260817
+generic name exact,50294427,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-08-18,,20260818,20260818
+generic name exact,50298254,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-08-18,,20260818,20260818
+generic name exact,50345804,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-08-20,,20260820,20260820
+generic name exact,50364256,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-08-21,,20260821,20260821
+generic name exact,50400780,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-08-24,,20260824,20260824
+generic name exact,50404119,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-08-24,,20260824,20260824
+generic name exact,50469734,only_pymaude,"CONTENT_IDENTICAL (only_pymaude: search-index lag, not a data gap)",2026-08-27,,20260827,20260827
+manufacturer + product code,23787976,only_openfda,"DEVICE_ROW_MISSING_LOCALLY (master present, device row absent in pymaude)",2009-12-23,1.0,,

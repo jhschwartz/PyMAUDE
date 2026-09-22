@@ -1,0 +1,1032 @@
+Loading text 1998...
+    68,315 rows
+  Loading text 1999...
+    51,118 rows
+  Loading text 2000...
+    52,624 rows
+  Loading text 2001...
+    58,946 rows
+  Loading text 2002...
+    64,858 rows
+  Loading text 2003...
+    66,240 rows
+  Loading text 2004...
+    89,212 rows
+  Loading text 2005...
+    108,667 rows
+  Loading text 2006...
+    164,360 rows
+  Loading text 2007...
+    277,633 rows
+  Loading text 2008...
+    313,089 rows
+  Loading text 2009...
+    428,943 rows
+  Loading text 2010...
+    635,655 rows
+  Loading text 2011...
+    1,040,281 rows
+  Loading text 2012...
+    1,167,622 rows
+  Loading text 2013...
+    1,609,333 rows
+  Loading text 2014...
+    1,948,386 rows
+  Loading text 2015...
+    2,074,007 rows
+  Loading text 2016...
+    2,210,045 rows
+  Loading text 2017...
+    2,423,096 rows
+  Loading text 2018...
+    2,844,294 rows
+  Loading text 2019...
+    3,467,461 rows
+  Loading text 2020...
+    4,020,738 rows
+  Loading text 2021...
+    4,872,211 rows
+  Loading text 2022...
+    6,640,117 rows
+  Loading text 2023...
+    5,445,995 rows
+  Loading text 2024...
+    6,092,428 rows
+  Loading text 2025...
+    6,554,689 rows
+  Loading text 2026...
+    4,192,939 rows
+  Loading text 1995...
+    27,400 rows
+
+Source-line repair summary (records split or corrupted by a raw delimiter/newline in the source file):
+  device: 210 recovered, 0 dropped (stray delimiter, unrecoverable), 0 dropped (unresolved)
+  master: 3,754 recovered, 3 dropped (stray delimiter, unrecoverable), 0 dropped (unresolved)
+{"elapsed": 589.0876456249971, "peak_mb": 3162.292224}
+  Replicate 2: 589.1 s, 3162 MB peak RSS
+  Skipping device_problem 1991: available from 1993 onwards
+  Skipping device_problem 1992: available from 1993 onwards
+  Skipping patient_problem 1991: available from 1993 onwards
+  Skipping patient_problem 1992: available from 1993 onwards
+  Loading device 1998...
+    63,440 rows
+  Loading device 1999...
+    52,880 rows
+  Loading device 2000...
+    53,113 rows
+  Loading device 2001...
+    59,066 rows
+  Loading device 2002...
+    70,383 rows
+  Loading device 2003...
+    77,948 rows
+  Loading device 2004...
+    82,886 rows
+  Loading device 2005...
+    99,769 rows
+  Loading device 2006...
+    120,485 rows
+  Loading device 2007...
+    172,204 rows
+  Loading device 2008...
+    195,473 rows
+  Loading device 2009...
+    243,106 rows
+  Loading device 2010...
+    304,404 rows
+  Loading device 2011...
+    446,879 rows
+  Loading device 2012...
+    487,771 rows
+  Loading device 2013...
+    683,360 rows
+  Loading device 2014...
+    863,977 rows
+  Loading device 2015...
+    862,246 rows
+  Loading device 2016...
+    866,854 rows
+  Loading device 2017...
+    935,347 rows
+  Loading device 2018...
+    1,046,447 rows
+  Loading device 2019...
+    1,331,843 rows
+  Loading device 2020...
+    1,567,919 rows
+  Loading device 2021...
+    2,032,835 rows
+  Loading device 2022...
+    2,954,980 rows
+  Loading device 2023...
+    2,345,004 rows
+  Loading device 2024...
+    2,629,372 rows
+  Loading device 2025...
+    2,887,987 rows
+  Loading device 2026...
+    2,503,702 rows
+  Loading device 1997...
+    136,916 rows
+  Loading device_problem (foidevproblem_thru2025.txt)...
+    29,198,732 rows
+  Loading device_problem (foidevproblem.txt)...
+    3,243,196 rows
+  device_problem: 32,441,928 total rows
+  Loading master (mdrfoiThru2025.txt)...
+    23,633,179 rows
+  Warning: master contains data outside 1991-2026: 1 row(s) in 1900
+  Loading master (mdrfoi.txt)...
+    2,503,702 rows
+  master: 26,136,881 total rows
+  Loading patient (patientThru2025.txt)...
+    23,619,555 rows
+  Loading patient (patient.txt)...
+    2,493,290 rows
+  patient: 26,112,845 total rows
+  Loading patient_problem (patientproblemcode_thru2025.txt)...
+    29,077,432 rows
+  Loading patient_problem (patientproblemcode.txt)...
+    2,984,913 rows
+  patient_problem: 32,062,345 total rows
+  Loading text 1996...
+    32,058 rows
+  Loading text 1997...
+    91,008 rows
+  Loading text 1998...
+    68,315 rows
+  Loading text 1999...
+    51,118 rows
+  Loading text 2000...
+    52,624 rows
+  Loading text 2001...
+    58,946 rows
+  Loading text 2002...
+    64,858 rows
+  Loading text 2003...
+    66,240 rows
+  Loading text 2004...
+    89,212 rows
+  Loading text 2005...
+    108,667 rows
+  Loading text 2006...
+    164,360 rows
+  Loading text 2007...
+    277,633 rows
+  Loading text 2008...
+    313,089 rows
+  Loading text 2009...
+    428,943 rows
+  Loading text 2010...
+    635,655 rows
+  Loading text 2011...
+    1,040,281 rows
+  Loading text 2012...
+    1,167,622 rows
+  Loading text 2013...
+    1,609,333 rows
+  Loading text 2014...
+    1,948,386 rows
+  Loading text 2015...
+    2,074,007 rows
+  Loading text 2016...
+    2,210,045 rows
+  Loading text 2017...
+    2,423,096 rows
+  Loading text 2018...
+    2,844,294 rows
+  Loading text 2019...
+    3,467,461 rows
+  Loading text 2020...
+    4,020,738 rows
+  Loading text 2021...
+    4,872,211 rows
+  Loading text 2022...
+    6,640,117 rows
+  Loading text 2023...
+    5,445,995 rows
+  Loading text 2024...
+    6,092,428 rows
+  Loading text 2025...
+    6,554,689 rows
+  Loading text 2026...
+    4,192,939 rows
+  Loading text 1995...
+    27,400 rows
+
+Source-line repair summary (records split or corrupted by a raw delimiter/newline in the source file):
+  device: 210 recovered, 0 dropped (stray delimiter, unrecoverable), 0 dropped (unresolved)
+  master: 3,754 recovered, 3 dropped (stray delimiter, unrecoverable), 0 dropped (unresolved)
+{"elapsed": 573.8640526670206, "peak_mb": 3567.157248}
+  Replicate 3: 573.9 s, 3567 MB peak RSS
+  Skipping device_problem 1991: available from 1993 onwards
+  Skipping device_problem 1992: available from 1993 onwards
+  Skipping patient_problem 1991: available from 1993 onwards
+  Skipping patient_problem 1992: available from 1993 onwards
+  Loading device 1998...
+    63,440 rows
+  Loading device 1999...
+    52,880 rows
+  Loading device 2000...
+    53,113 rows
+  Loading device 2001...
+    59,066 rows
+  Loading device 2002...
+    70,383 rows
+  Loading device 2003...
+    77,948 rows
+  Loading device 2004...
+    82,886 rows
+  Loading device 2005...
+    99,769 rows
+  Loading device 2006...
+    120,485 rows
+  Loading device 2007...
+    172,204 rows
+  Loading device 2008...
+    195,473 rows
+  Loading device 2009...
+    243,106 rows
+  Loading device 2010...
+    304,404 rows
+  Loading device 2011...
+    446,879 rows
+  Loading device 2012...
+    487,771 rows
+  Loading device 2013...
+    683,360 rows
+  Loading device 2014...
+    863,977 rows
+  Loading device 2015...
+    862,246 rows
+  Loading device 2016...
+    866,854 rows
+  Loading device 2017...
+    935,347 rows
+  Loading device 2018...
+    1,046,447 rows
+  Loading device 2019...
+    1,331,843 rows
+  Loading device 2020...
+    1,567,919 rows
+  Loading device 2021...
+    2,032,835 rows
+  Loading device 2022...
+    2,954,980 rows
+  Loading device 2023...
+    2,345,004 rows
+  Loading device 2024...
+    2,629,372 rows
+  Loading device 2025...
+    2,887,987 rows
+  Loading device 2026...
+    2,503,702 rows
+  Loading device 1997...
+    136,916 rows
+  Loading device_problem (foidevproblem_thru2025.txt)...
+    29,198,732 rows
+  Loading device_problem (foidevproblem.txt)...
+    3,243,196 rows
+  device_problem: 32,441,928 total rows
+  Loading master (mdrfoiThru2025.txt)...
+    23,633,179 rows
+  Warning: master contains data outside 1991-2026: 1 row(s) in 1900
+  Loading master (mdrfoi.txt)...
+    2,503,702 rows
+  master: 26,136,881 total rows
+  Loading patient (patientThru2025.txt)...
+    23,619,555 rows
+  Loading patient (patient.txt)...
+    2,493,290 rows
+  patient: 26,112,845 total rows
+  Loading patient_problem (patientproblemcode_thru2025.txt)...
+    29,077,432 rows
+  Loading patient_problem (patientproblemcode.txt)...
+    2,984,913 rows
+  patient_problem: 32,062,345 total rows
+  Loading text 1996...
+    32,058 rows
+  Loading text 1997...
+    91,008 rows
+  Loading text 1998...
+    68,315 rows
+  Loading text 1999...
+    51,118 rows
+  Loading text 2000...
+    52,624 rows
+  Loading text 2001...
+    58,946 rows
+  Loading text 2002...
+    64,858 rows
+  Loading text 2003...
+    66,240 rows
+  Loading text 2004...
+    89,212 rows
+  Loading text 2005...
+    108,667 rows
+  Loading text 2006...
+    164,360 rows
+  Loading text 2007...
+    277,633 rows
+  Loading text 2008...
+    313,089 rows
+  Loading text 2009...
+    428,943 rows
+  Loading text 2010...
+    635,655 rows
+  Loading text 2011...
+    1,040,281 rows
+  Loading text 2012...
+    1,167,622 rows
+  Loading text 2013...
+    1,609,333 rows
+  Loading text 2014...
+    1,948,386 rows
+  Loading text 2015...
+    2,074,007 rows
+  Loading text 2016...
+    2,210,045 rows
+  Loading text 2017...
+    2,423,096 rows
+  Loading text 2018...
+    2,844,294 rows
+  Loading text 2019...
+    3,467,461 rows
+  Loading text 2020...
+    4,020,738 rows
+  Loading text 2021...
+    4,872,211 rows
+  Loading text 2022...
+    6,640,117 rows
+  Loading text 2023...
+    5,445,995 rows
+  Loading text 2024...
+    6,092,428 rows
+  Loading text 2025...
+    6,554,689 rows
+  Loading text 2026...
+    4,192,939 rows
+  Loading text 1995...
+    27,400 rows
+
+Source-line repair summary (records split or corrupted by a raw delimiter/newline in the source file):
+  device: 210 recovered, 0 dropped (stray delimiter, unrecoverable), 0 dropped (unresolved)
+  master: 3,754 recovered, 3 dropped (stray delimiter, unrecoverable), 0 dropped (unresolved)
+{"elapsed": 577.8143075830012, "peak_mb": 3470.098432}
+  Replicate 4: 577.8 s, 3470 MB peak RSS
+  Skipping device_problem 1991: available from 1993 onwards
+  Skipping device_problem 1992: available from 1993 onwards
+  Skipping patient_problem 1991: available from 1993 onwards
+  Skipping patient_problem 1992: available from 1993 onwards
+  Loading device 1998...
+    63,440 rows
+  Loading device 1999...
+    52,880 rows
+  Loading device 2000...
+    53,113 rows
+  Loading device 2001...
+    59,066 rows
+  Loading device 2002...
+    70,383 rows
+  Loading device 2003...
+    77,948 rows
+  Loading device 2004...
+    82,886 rows
+  Loading device 2005...
+    99,769 rows
+  Loading device 2006...
+    120,485 rows
+  Loading device 2007...
+    172,204 rows
+  Loading device 2008...
+    195,473 rows
+  Loading device 2009...
+    243,106 rows
+  Loading device 2010...
+    304,404 rows
+  Loading device 2011...
+    446,879 rows
+  Loading device 2012...
+    487,771 rows
+  Loading device 2013...
+    683,360 rows
+  Loading device 2014...
+    863,977 rows
+  Loading device 2015...
+    862,246 rows
+  Loading device 2016...
+    866,854 rows
+  Loading device 2017...
+    935,347 rows
+  Loading device 2018...
+    1,046,447 rows
+  Loading device 2019...
+    1,331,843 rows
+  Loading device 2020...
+    1,567,919 rows
+  Loading device 2021...
+    2,032,835 rows
+  Loading device 2022...
+    2,954,980 rows
+  Loading device 2023...
+    2,345,004 rows
+  Loading device 2024...
+    2,629,372 rows
+  Loading device 2025...
+    2,887,987 rows
+  Loading device 2026...
+    2,503,702 rows
+  Loading device 1997...
+    136,916 rows
+  Loading device_problem (foidevproblem_thru2025.txt)...
+    29,198,732 rows
+  Loading device_problem (foidevproblem.txt)...
+    3,243,196 rows
+  device_problem: 32,441,928 total rows
+  Loading master (mdrfoiThru2025.txt)...
+    23,633,179 rows
+  Warning: master contains data outside 1991-2026: 1 row(s) in 1900
+  Loading master (mdrfoi.txt)...
+    2,503,702 rows
+  master: 26,136,881 total rows
+  Loading patient (patientThru2025.txt)...
+    23,619,555 rows
+  Loading patient (patient.txt)...
+    2,493,290 rows
+  patient: 26,112,845 total rows
+  Loading patient_problem (patientproblemcode_thru2025.txt)...
+    29,077,432 rows
+  Loading patient_problem (patientproblemcode.txt)...
+    2,984,913 rows
+  patient_problem: 32,062,345 total rows
+  Loading text 1996...
+    32,058 rows
+  Loading text 1997...
+    91,008 rows
+  Loading text 1998...
+    68,315 rows
+  Loading text 1999...
+    51,118 rows
+  Loading text 2000...
+    52,624 rows
+  Loading text 2001...
+    58,946 rows
+  Loading text 2002...
+    64,858 rows
+  Loading text 2003...
+    66,240 rows
+  Loading text 2004...
+    89,212 rows
+  Loading text 2005...
+    108,667 rows
+  Loading text 2006...
+    164,360 rows
+  Loading text 2007...
+    277,633 rows
+  Loading text 2008...
+    313,089 rows
+  Loading text 2009...
+    428,943 rows
+  Loading text 2010...
+    635,655 rows
+  Loading text 2011...
+    1,040,281 rows
+  Loading text 2012...
+    1,167,622 rows
+  Loading text 2013...
+    1,609,333 rows
+  Loading text 2014...
+    1,948,386 rows
+  Loading text 2015...
+    2,074,007 rows
+  Loading text 2016...
+    2,210,045 rows
+  Loading text 2017...
+    2,423,096 rows
+  Loading text 2018...
+    2,844,294 rows
+  Loading text 2019...
+    3,467,461 rows
+  Loading text 2020...
+    4,020,738 rows
+  Loading text 2021...
+    4,872,211 rows
+  Loading text 2022...
+    6,640,117 rows
+  Loading text 2023...
+    5,445,995 rows
+  Loading text 2024...
+    6,092,428 rows
+  Loading text 2025...
+    6,554,689 rows
+  Loading text 2026...
+    4,192,939 rows
+  Loading text 1995...
+    27,400 rows
+
+Source-line repair summary (records split or corrupted by a raw delimiter/newline in the source file):
+  device: 210 recovered, 0 dropped (stray delimiter, unrecoverable), 0 dropped (unresolved)
+  master: 3,754 recovered, 3 dropped (stray delimiter, unrecoverable), 0 dropped (unresolved)
+{"elapsed": 575.7639206669992, "peak_mb": 3445.768192}
+  Replicate 5: 575.8 s, 3446 MB peak RSS
+
+==========================
+Estimated download time:        5 min 6 sec
+Median local build time (n=5): 9 min 38 sec
+Range:                           9 min 34 sec to 10 min 11 sec
+Peak memory across replicates:   3.57 GB (DuckDB memory_limit=2GB)
+Database size on disk:           57.0 GB
+timing simple queries...
+query_device — product code only: reports=128929, rows=129144, median=8.596s, [7.437,9.253]
+query_device — product code + date range: reports=53027, rows=53055, median=4.595s, [4.539,6.115]
+query_device — brand name exact: reports=5819, rows=5819, median=5.105s, [4.999,5.491]
+query_device — generic name exact: reports=777, rows=778, median=4.239s, [4.158,4.417]
+query_device — manufacturer + product code: reports=10673, rows=10731, median=4.397s, [3.885,4.845]
+timing compund queries...
+search_by_device_names — single term: reports=5412, rows=5514, median=5.970s, [5.313,6.293]
+search_by_device_names — OR of two terms: reports=8376, rows=8481, median=6.794s, [6.531,7.058]
+search_by_device_names — AND-within-OR (compound): reports=2115, rows=2124, median=6.454s, [6.293,6.948]
+timing grouped queries...
+Grouped case of search_by_device_names — venous vs arterial thrombectomy cohorts: reports=6018, rows=6018, median=37.440s, [36.932,42.247]
+
+Wrote benchmark_query_results.csv
+
+Range of medians: 4.239s to 37.440s
+
+Beginning 5 replicates of archive() (zstd level 3)...
+  master.parquet: writing 26,136,881 rows...
+  device.parquet: writing 26,178,596 rows...
+  text.parquet: writing 59,133,768 rows...
+  patient.parquet: writing 26,112,845 rows...
+  device_problem.parquet: writing 32,441,928 rows...
+  patient_problem.parquet: writing 32,062,345 rows...
+  raw.tar: bundling 65 zips (7.63 GB)...
+Archive written to ../maude_archive (13.49 GB)
+  Tables : 6
+  Raw    : 65 zips
+{"elapsed": 147.5049713329936, "peak_mb": 3476.750336, "archive_bytes": 13486674852}
+  Replicate 1: 147.5 s, 3477 MB peak RSS
+  master.parquet: writing 26,136,881 rows...
+  device.parquet: writing 26,178,596 rows...
+  text.parquet: writing 59,133,768 rows...
+  patient.parquet: writing 26,112,845 rows...
+  device_problem.parquet: writing 32,441,928 rows...
+  patient_problem.parquet: writing 32,062,345 rows...
+  raw.tar: bundling 65 zips (7.63 GB)...
+Archive written to ../maude_archive (13.49 GB)
+  Tables : 6
+  Raw    : 65 zips
+{"elapsed": 151.05172616700293, "peak_mb": 3673.227264, "archive_bytes": 13486348551}
+  Replicate 2: 151.1 s, 3673 MB peak RSS
+  master.parquet: writing 26,136,881 rows...
+  device.parquet: writing 26,178,596 rows...
+  text.parquet: writing 59,133,768 rows...
+  patient.parquet: writing 26,112,845 rows...
+  device_problem.parquet: writing 32,441,928 rows...
+  patient_problem.parquet: writing 32,062,345 rows...
+  raw.tar: bundling 65 zips (7.63 GB)...
+Archive written to ../maude_archive (13.49 GB)
+  Tables : 6
+  Raw    : 65 zips
+{"elapsed": 148.20263095901464, "peak_mb": 3625.992192, "archive_bytes": 13486617669}
+  Replicate 3: 148.2 s, 3626 MB peak RSS
+  master.parquet: writing 26,136,881 rows...
+  device.parquet: writing 26,178,596 rows...
+  text.parquet: writing 59,133,768 rows...
+  patient.parquet: writing 26,112,845 rows...
+  device_problem.parquet: writing 32,441,928 rows...
+  patient_problem.parquet: writing 32,062,345 rows...
+  raw.tar: bundling 65 zips (7.63 GB)...
+Archive written to ../maude_archive (13.49 GB)
+  Tables : 6
+  Raw    : 65 zips
+{"elapsed": 147.67221225000685, "peak_mb": 3403.595776, "archive_bytes": 13486868279}
+  Replicate 4: 147.7 s, 3404 MB peak RSS
+  master.parquet: writing 26,136,881 rows...
+  device.parquet: writing 26,178,596 rows...
+  text.parquet: writing 59,133,768 rows...
+  patient.parquet: writing 26,112,845 rows...
+  device_problem.parquet: writing 32,441,928 rows...
+  patient_problem.parquet: writing 32,062,345 rows...
+  raw.tar: bundling 65 zips (7.63 GB)...
+Archive written to ../maude_archive (13.49 GB)
+  Tables : 6
+  Raw    : 65 zips
+{"elapsed": 145.96778341699974, "peak_mb": 3587.915776, "archive_bytes": 13486209624}
+  Replicate 5: 146.0 s, 3588 MB peak RSS
+
+==========================
+Median archive time (n=5):   2 min 28 sec
+Range:                           2 min 26 sec to 2 min 31 sec
+Peak memory across replicates:   3.67 GB RSS (DuckDB memory_limit=4GB)
+Archive size on disk:            13.5 GB (database file: 57.0 GB)
+Archive verified against its manifest.
+Archive removed:                 /Users/jakeumms/University of Michigan Dropbox/Jacob Schwartz/eras reserach projects/pymaude-new/maude_archive (use --keep-archive to keep it)
+
+=== Part 1: full-database agreement ===
+  partition 1/371: https://download.open.fda.gov/device/event/2004q3/device-event-0001-of-0001.json.zip
+  partition 2/371: https://download.open.fda.gov/device/event/1994q4/device-event-0001-of-0001.json.zip
+  partition 3/371: https://download.open.fda.gov/device/event/1997q3/device-event-0001-of-0001.json.zip
+  partition 4/371: https://download.open.fda.gov/device/event/2020q3/device-event-0001-of-0005.json.zip
+  partition 5/371: https://download.open.fda.gov/device/event/2020q3/device-event-0002-of-0005.json.zip
+  partition 6/371: https://download.open.fda.gov/device/event/2020q3/device-event-0003-of-0005.json.zip
+  partition 7/371: https://download.open.fda.gov/device/event/2020q3/device-event-0004-of-0005.json.zip
+  partition 8/371: https://download.open.fda.gov/device/event/2020q3/device-event-0005-of-0005.json.zip
+  partition 9/371: https://download.open.fda.gov/device/event/2010q4/device-event-0001-of-0001.json.zip
+  partition 10/371: https://download.open.fda.gov/device/event/2005q2/device-event-0001-of-0001.json.zip
+  partition 11/371: https://download.open.fda.gov/device/event/2013q2/device-event-0001-of-0002.json.zip
+  partition 12/371: https://download.open.fda.gov/device/event/2013q2/device-event-0002-of-0002.json.zip
+  partition 13/371: https://download.open.fda.gov/device/event/2003q1/device-event-0001-of-0001.json.zip
+  partition 14/371: https://download.open.fda.gov/device/event/2008q4/device-event-0001-of-0001.json.zip
+  partition 15/371: https://download.open.fda.gov/device/event/1999q2/device-event-0001-of-0001.json.zip
+  partition 16/371: https://download.open.fda.gov/device/event/1992q2/device-event-0001-of-0001.json.zip
+  partition 17/371: https://download.open.fda.gov/device/event/2014q1/device-event-0001-of-0003.json.zip
+  partition 18/371: https://download.open.fda.gov/device/event/2014q1/device-event-0002-of-0003.json.zip
+  partition 19/371: https://download.open.fda.gov/device/event/2014q1/device-event-0003-of-0003.json.zip
+  partition 20/371: https://download.open.fda.gov/device/event/2025q4/device-event-0001-of-0008.json.zip
+  partition 21/371: https://download.open.fda.gov/device/event/2025q4/device-event-0002-of-0008.json.zip
+  partition 22/371: https://download.open.fda.gov/device/event/2025q4/device-event-0003-of-0008.json.zip
+  partition 23/371: https://download.open.fda.gov/device/event/2025q4/device-event-0004-of-0008.json.zip
+  partition 24/371: https://download.open.fda.gov/device/event/2025q4/device-event-0005-of-0008.json.zip
+  partition 25/371: https://download.open.fda.gov/device/event/2025q4/device-event-0006-of-0008.json.zip
+  partition 26/371: https://download.open.fda.gov/device/event/2025q4/device-event-0007-of-0008.json.zip
+  partition 27/371: https://download.open.fda.gov/device/event/2025q4/device-event-0008-of-0008.json.zip
+  partition 28/371: https://download.open.fda.gov/device/event/2018q4/device-event-0001-of-0003.json.zip
+  partition 29/371: https://download.open.fda.gov/device/event/2018q4/device-event-0002-of-0003.json.zip
+  partition 30/371: https://download.open.fda.gov/device/event/2018q4/device-event-0003-of-0003.json.zip
+  partition 31/371: https://download.open.fda.gov/device/event/2013q1/device-event-0001-of-0002.json.zip
+  partition 32/371: https://download.open.fda.gov/device/event/2013q1/device-event-0002-of-0002.json.zip
+  partition 33/371: https://download.open.fda.gov/device/event/2009q4/device-event-0001-of-0001.json.zip
+  partition 34/371: https://download.open.fda.gov/device/event/2011q3/device-event-0001-of-0002.json.zip
+  partition 35/371: https://download.open.fda.gov/device/event/2011q3/device-event-0002-of-0002.json.zip
+  partition 36/371: https://download.open.fda.gov/device/event/1995q1/device-event-0001-of-0001.json.zip
+  partition 37/371: https://download.open.fda.gov/device/event/2009q2/device-event-0001-of-0001.json.zip
+  partition 38/371: https://download.open.fda.gov/device/event/2000q4/device-event-0001-of-0001.json.zip
+  partition 39/371: https://download.open.fda.gov/device/event/2023q3/device-event-0001-of-0007.json.zip
+  partition 40/371: https://download.open.fda.gov/device/event/2023q3/device-event-0002-of-0007.json.zip
+  partition 41/371: https://download.open.fda.gov/device/event/2023q3/device-event-0003-of-0007.json.zip
+  partition 42/371: https://download.open.fda.gov/device/event/2023q3/device-event-0004-of-0007.json.zip
+  partition 43/371: https://download.open.fda.gov/device/event/2023q3/device-event-0005-of-0007.json.zip
+  partition 44/371: https://download.open.fda.gov/device/event/2023q3/device-event-0006-of-0007.json.zip
+  partition 45/371: https://download.open.fda.gov/device/event/2023q3/device-event-0007-of-0007.json.zip
+  partition 46/371: https://download.open.fda.gov/device/event/2007q1/device-event-0001-of-0001.json.zip
+  partition 47/371: https://download.open.fda.gov/device/event/1993q2/device-event-0001-of-0001.json.zip
+  partition 48/371: https://download.open.fda.gov/device/event/1997q2/device-event-0001-of-0001.json.zip
+  partition 49/371: https://download.open.fda.gov/device/event/1998q3/device-event-0001-of-0001.json.zip
+  partition 50/371: https://download.open.fda.gov/device/event/2026q2/device-event-0001-of-0010.json.zip
+  partition 51/371: https://download.open.fda.gov/device/event/2026q2/device-event-0002-of-0010.json.zip
+  partition 52/371: https://download.open.fda.gov/device/event/2026q2/device-event-0003-of-0010.json.zip
+  partition 53/371: https://download.open.fda.gov/device/event/2026q2/device-event-0004-of-0010.json.zip
+  partition 54/371: https://download.open.fda.gov/device/event/2026q2/device-event-0005-of-0010.json.zip
+  partition 55/371: https://download.open.fda.gov/device/event/2026q2/device-event-0006-of-0010.json.zip
+  partition 56/371: https://download.open.fda.gov/device/event/2026q2/device-event-0007-of-0010.json.zip
+  partition 57/371: https://download.open.fda.gov/device/event/2026q2/device-event-0008-of-0010.json.zip
+  partition 58/371: https://download.open.fda.gov/device/event/2026q2/device-event-0009-of-0010.json.zip
+  partition 59/371: https://download.open.fda.gov/device/event/2026q2/device-event-0010-of-0010.json.zip
+  partition 60/371: https://download.open.fda.gov/device/event/2020q4/device-event-0001-of-0006.json.zip
+  partition 61/371: https://download.open.fda.gov/device/event/2020q4/device-event-0002-of-0006.json.zip
+  partition 62/371: https://download.open.fda.gov/device/event/2020q4/device-event-0003-of-0006.json.zip
+  partition 63/371: https://download.open.fda.gov/device/event/2020q4/device-event-0004-of-0006.json.zip
+  partition 64/371: https://download.open.fda.gov/device/event/2020q4/device-event-0005-of-0006.json.zip
+  partition 65/371: https://download.open.fda.gov/device/event/2020q4/device-event-0006-of-0006.json.zip
+  partition 66/371: https://download.open.fda.gov/device/event/1996q4/device-event-0001-of-0001.json.zip
+  partition 67/371: https://download.open.fda.gov/device/event/2025q3/device-event-0001-of-0009.json.zip
+  partition 68/371: https://download.open.fda.gov/device/event/2025q3/device-event-0002-of-0009.json.zip
+  partition 69/371: https://download.open.fda.gov/device/event/2025q3/device-event-0003-of-0009.json.zip
+  partition 70/371: https://download.open.fda.gov/device/event/2025q3/device-event-0004-of-0009.json.zip
+  partition 71/371: https://download.open.fda.gov/device/event/2025q3/device-event-0005-of-0009.json.zip
+  partition 72/371: https://download.open.fda.gov/device/event/2025q3/device-event-0006-of-0009.json.zip
+  partition 73/371: https://download.open.fda.gov/device/event/2025q3/device-event-0007-of-0009.json.zip
+  partition 74/371: https://download.open.fda.gov/device/event/2025q3/device-event-0008-of-0009.json.zip
+  partition 75/371: https://download.open.fda.gov/device/event/2025q3/device-event-0009-of-0009.json.zip
+  partition 76/371: https://download.open.fda.gov/device/event/2024q2/device-event-0001-of-0007.json.zip
+  partition 77/371: https://download.open.fda.gov/device/event/2024q2/device-event-0002-of-0007.json.zip
+  partition 78/371: https://download.open.fda.gov/device/event/2024q2/device-event-0003-of-0007.json.zip
+  partition 79/371: https://download.open.fda.gov/device/event/2024q2/device-event-0004-of-0007.json.zip
+  partition 80/371: https://download.open.fda.gov/device/event/2024q2/device-event-0005-of-0007.json.zip
+  partition 81/371: https://download.open.fda.gov/device/event/2024q2/device-event-0006-of-0007.json.zip
+  partition 82/371: https://download.open.fda.gov/device/event/2024q2/device-event-0007-of-0007.json.zip
+  partition 83/371: https://download.open.fda.gov/device/event/2005q4/device-event-0001-of-0001.json.zip
+  partition 84/371: https://download.open.fda.gov/device/event/2011q1/device-event-0001-of-0002.json.zip
+  partition 85/371: https://download.open.fda.gov/device/event/2011q1/device-event-0002-of-0002.json.zip
+  partition 86/371: https://download.open.fda.gov/device/event/2014q3/device-event-0001-of-0003.json.zip
+  partition 87/371: https://download.open.fda.gov/device/event/2014q3/device-event-0002-of-0003.json.zip
+  partition 88/371: https://download.open.fda.gov/device/event/2014q3/device-event-0003-of-0003.json.zip
+  partition 89/371: https://download.open.fda.gov/device/event/2022q2/device-event-0001-of-0010.json.zip
+  partition 90/371: https://download.open.fda.gov/device/event/2022q2/device-event-0002-of-0010.json.zip
+  partition 91/371: https://download.open.fda.gov/device/event/2022q2/device-event-0003-of-0010.json.zip
+  partition 92/371: https://download.open.fda.gov/device/event/2022q2/device-event-0004-of-0010.json.zip
+  partition 93/371: https://download.open.fda.gov/device/event/2022q2/device-event-0005-of-0010.json.zip
+  partition 94/371: https://download.open.fda.gov/device/event/2022q2/device-event-0006-of-0010.json.zip
+  partition 95/371: https://download.open.fda.gov/device/event/2022q2/device-event-0007-of-0010.json.zip
+  partition 96/371: https://download.open.fda.gov/device/event/2022q2/device-event-0008-of-0010.json.zip
+  partition 97/371: https://download.open.fda.gov/device/event/2022q2/device-event-0009-of-0010.json.zip
+  partition 98/371: https://download.open.fda.gov/device/event/2022q2/device-event-0010-of-0010.json.zip
+  partition 99/371: https://download.open.fda.gov/device/event/2012q2/device-event-0001-of-0002.json.zip
+  partition 100/371: https://download.open.fda.gov/device/event/2012q2/device-event-0002-of-0002.json.zip
+  partition 101/371: https://download.open.fda.gov/device/event/2002q1/device-event-0001-of-0001.json.zip
+  partition 102/371: https://download.open.fda.gov/device/event/2021q4/device-event-0001-of-0007.json.zip
+  partition 103/371: https://download.open.fda.gov/device/event/2021q4/device-event-0002-of-0007.json.zip
+  partition 104/371: https://download.open.fda.gov/device/event/2021q4/device-event-0003-of-0007.json.zip
+  partition 105/371: https://download.open.fda.gov/device/event/2021q4/device-event-0004-of-0007.json.zip
+  partition 106/371: https://download.open.fda.gov/device/event/2021q4/device-event-0005-of-0007.json.zip
+  partition 107/371: https://download.open.fda.gov/device/event/2021q4/device-event-0006-of-0007.json.zip
+  partition 108/371: https://download.open.fda.gov/device/event/2021q4/device-event-0007-of-0007.json.zip
+  partition 109/371: https://download.open.fda.gov/device/event/1995q2/device-event-0001-of-0001.json.zip
+  partition 110/371: https://download.open.fda.gov/device/event/2006q1/device-event-0001-of-0001.json.zip
+  partition 111/371: https://download.open.fda.gov/device/event/2020q2/device-event-0001-of-0004.json.zip
+  partition 112/371: https://download.open.fda.gov/device/event/2020q2/device-event-0002-of-0004.json.zip
+  partition 113/371: https://download.open.fda.gov/device/event/2020q2/device-event-0003-of-0004.json.zip
+  partition 114/371: https://download.open.fda.gov/device/event/2020q2/device-event-0004-of-0004.json.zip
+  partition 115/371: https://download.open.fda.gov/device/event/2021q3/device-event-0001-of-0005.json.zip
+  partition 116/371: https://download.open.fda.gov/device/event/2021q3/device-event-0002-of-0005.json.zip
+  partition 117/371: https://download.open.fda.gov/device/event/2021q3/device-event-0003-of-0005.json.zip
+  partition 118/371: https://download.open.fda.gov/device/event/2021q3/device-event-0004-of-0005.json.zip
+  partition 119/371: https://download.open.fda.gov/device/event/2021q3/device-event-0005-of-0005.json.zip
+  partition 120/371: https://download.open.fda.gov/device/event/2024q3/device-event-0001-of-0008.json.zip
+  partition 121/371: https://download.open.fda.gov/device/event/2024q3/device-event-0002-of-0008.json.zip
+  partition 122/371: https://download.open.fda.gov/device/event/2024q3/device-event-0003-of-0008.json.zip
+  partition 123/371: https://download.open.fda.gov/device/event/2024q3/device-event-0004-of-0008.json.zip
+  partition 124/371: https://download.open.fda.gov/device/event/2024q3/device-event-0005-of-0008.json.zip
+  partition 125/371: https://download.open.fda.gov/device/event/2024q3/device-event-0006-of-0008.json.zip
+  partition 126/371: https://download.open.fda.gov/device/event/2024q3/device-event-0007-of-0008.json.zip
+  partition 127/371: https://download.open.fda.gov/device/event/2024q3/device-event-0008-of-0008.json.zip
+  partition 128/371: https://download.open.fda.gov/device/event/2002q3/device-event-0001-of-0001.json.zip
+  partition 129/371: https://download.open.fda.gov/device/event/1995q4/device-event-0001-of-0001.json.zip
+  partition 130/371: https://download.open.fda.gov/device/event/2007q4/device-event-0001-of-0001.json.zip
+  partition 131/371: https://download.open.fda.gov/device/event/1993q4/device-event-0001-of-0001.json.zip
+  partition 132/371: https://download.open.fda.gov/device/event/2006q2/device-event-0001-of-0001.json.zip
+  partition 133/371: https://download.open.fda.gov/device/event/2001q4/device-event-0001-of-0001.json.zip
+  partition 134/371: https://download.open.fda.gov/device/event/2000q1/device-event-0001-of-0001.json.zip
+  partition 135/371: https://download.open.fda.gov/device/event/2023q1/device-event-0001-of-0007.json.zip
+  partition 136/371: https://download.open.fda.gov/device/event/2023q1/device-event-0002-of-0007.json.zip
+  partition 137/371: https://download.open.fda.gov/device/event/2023q1/device-event-0003-of-0007.json.zip
+  partition 138/371: https://download.open.fda.gov/device/event/2023q1/device-event-0004-of-0007.json.zip
+  partition 139/371: https://download.open.fda.gov/device/event/2023q1/device-event-0005-of-0007.json.zip
+  partition 140/371: https://download.open.fda.gov/device/event/2023q1/device-event-0006-of-0007.json.zip
+  partition 141/371: https://download.open.fda.gov/device/event/2023q1/device-event-0007-of-0007.json.zip
+  partition 142/371: https://download.open.fda.gov/device/event/1994q3/device-event-0001-of-0001.json.zip
+  partition 143/371: https://download.open.fda.gov/device/event/2009q3/device-event-0001-of-0001.json.zip
+  partition 144/371: https://download.open.fda.gov/device/event/1997q1/device-event-0001-of-0001.json.zip
+  partition 145/371: https://download.open.fda.gov/device/event/2004q2/device-event-0001-of-0001.json.zip
+  partition 146/371: https://download.open.fda.gov/device/event/2001q1/device-event-0001-of-0001.json.zip
+  partition 147/371: https://download.open.fda.gov/device/event/2003q2/device-event-0001-of-0001.json.zip
+  partition 148/371: https://download.open.fda.gov/device/event/1992q1/device-event-0001-of-0001.json.zip
+  partition 149/371: https://download.open.fda.gov/device/event/2012q4/device-event-0001-of-0002.json.zip
+  partition 150/371: https://download.open.fda.gov/device/event/2012q4/device-event-0002-of-0002.json.zip
+  partition 151/371: https://download.open.fda.gov/device/event/2014q4/device-event-0001-of-0003.json.zip
+  partition 152/371: https://download.open.fda.gov/device/event/2014q4/device-event-0002-of-0003.json.zip
+  partition 153/371: https://download.open.fda.gov/device/event/2014q4/device-event-0003-of-0003.json.zip
+  partition 154/371: https://download.open.fda.gov/device/event/2021q2/device-event-0001-of-0006.json.zip
+  partition 155/371: https://download.open.fda.gov/device/event/2021q2/device-event-0002-of-0006.json.zip
+  partition 156/371: https://download.open.fda.gov/device/event/2021q2/device-event-0003-of-0006.json.zip
+  partition 157/371: https://download.open.fda.gov/device/event/2021q2/device-event-0004-of-0006.json.zip
+  partition 158/371: https://download.open.fda.gov/device/event/2021q2/device-event-0005-of-0006.json.zip
+  partition 159/371: https://download.open.fda.gov/device/event/2021q2/device-event-0006-of-0006.json.zip
+  partition 160/371: https://download.open.fda.gov/device/event/2017q4/device-event-0001-of-0003.json.zip
+  partition 161/371: https://download.open.fda.gov/device/event/2017q4/device-event-0002-of-0003.json.zip
+  partition 162/371: https://download.open.fda.gov/device/event/2017q4/device-event-0003-of-0003.json.zip
+  partition 163/371: https://download.open.fda.gov/device/event/2003q4/device-event-0001-of-0001.json.zip
+  partition 164/371: https://download.open.fda.gov/device/event/2003q3/device-event-0001-of-0001.json.zip
+  partition 165/371: https://download.open.fda.gov/device/event/2000q3/device-event-0001-of-0001.json.zip
+  partition 166/371: https://download.open.fda.gov/device/event/1994q1/device-event-0001-of-0001.json.zip
+  partition 167/371: https://download.open.fda.gov/device/event/2000q2/device-event-0001-of-0001.json.zip
+  partition 168/371: https://download.open.fda.gov/device/event/2007q2/device-event-0001-of-0001.json.zip
+  partition 169/371: https://download.open.fda.gov/device/event/2012q1/device-event-0001-of-0002.json.zip
+  partition 170/371: https://download.open.fda.gov/device/event/2012q1/device-event-0002-of-0002.json.zip
+  partition 171/371: https://download.open.fda.gov/device/event/1996q2/device-event-0001-of-0001.json.zip
+  partition 172/371: https://download.open.fda.gov/device/event/2015q3/device-event-0001-of-0003.json.zip
+  partition 173/371: https://download.open.fda.gov/device/event/2015q3/device-event-0002-of-0003.json.zip
+  partition 174/371: https://download.open.fda.gov/device/event/2015q3/device-event-0003-of-0003.json.zip
+  partition 175/371: https://download.open.fda.gov/device/event/2004q1/device-event-0001-of-0001.json.zip
+  partition 176/371: https://download.open.fda.gov/device/event/2010q1/device-event-0001-of-0001.json.zip
+  partition 177/371: https://download.open.fda.gov/device/event/1999q4/device-event-0001-of-0001.json.zip
+  partition 178/371: https://download.open.fda.gov/device/event/2004q4/device-event-0001-of-0001.json.zip
+  partition 179/371: https://download.open.fda.gov/device/event/2009q1/device-event-0001-of-0001.json.zip
+  partition 180/371: https://download.open.fda.gov/device/event/2014q2/device-event-0001-of-0002.json.zip
+  partition 181/371: https://download.open.fda.gov/device/event/2014q2/device-event-0002-of-0002.json.zip
+  partition 182/371: https://download.open.fda.gov/device/event/2010q2/device-event-0001-of-0001.json.zip
+  partition 183/371: https://download.open.fda.gov/device/event/1996q3/device-event-0001-of-0001.json.zip
+  partition 184/371: https://download.open.fda.gov/device/event/2016q4/device-event-0001-of-0003.json.zip
+  partition 185/371: https://download.open.fda.gov/device/event/2016q4/device-event-0002-of-0003.json.zip
+  partition 186/371: https://download.open.fda.gov/device/event/2016q4/device-event-0003-of-0003.json.zip
+  partition 187/371: https://download.open.fda.gov/device/event/2005q1/device-event-0001-of-0001.json.zip
+  partition 188/371: https://download.open.fda.gov/device/event/2011q4/device-event-0001-of-0002.json.zip
+  partition 189/371: https://download.open.fda.gov/device/event/2011q4/device-event-0002-of-0002.json.zip
+  partition 190/371: https://download.open.fda.gov/device/event/2011q2/device-event-0001-of-0002.json.zip
+  partition 191/371: https://download.open.fda.gov/device/event/2011q2/device-event-0002-of-0002.json.zip
+  partition 192/371: https://download.open.fda.gov/device/event/2007q3/device-event-0001-of-0001.json.zip
+  partition 193/371: https://download.open.fda.gov/device/event/2008q2/device-event-0001-of-0001.json.zip
+  partition 194/371: https://download.open.fda.gov/device/event/all_other/device-event-0001-of-0001.json.zip
+  partition 195/371: https://download.open.fda.gov/device/event/2024q4/device-event-0001-of-0008.json.zip
+  partition 196/371: https://download.open.fda.gov/device/event/2024q4/device-event-0002-of-0008.json.zip
+  partition 197/371: https://download.open.fda.gov/device/event/2024q4/device-event-0003-of-0008.json.zip
+  partition 198/371: https://download.open.fda.gov/device/event/2024q4/device-event-0004-of-0008.json.zip
+  partition 199/371: https://download.open.fda.gov/device/event/2024q4/device-event-0005-of-0008.json.zip
+  partition 200/371: https://download.open.fda.gov/device/event/2024q4/device-event-0006-of-0008.json.zip
+  partition 201/371: https://download.open.fda.gov/device/event/2024q4/device-event-0007-of-0008.json.zip
+  partition 202/371: https://download.open.fda.gov/device/event/2024q4/device-event-0008-of-0008.json.zip
+  partition 203/371: https://download.open.fda.gov/device/event/2018q3/device-event-0001-of-0003.json.zip
+  partition 204/371: https://download.open.fda.gov/device/event/2018q3/device-event-0002-of-0003.json.zip
+  partition 205/371: https://download.open.fda.gov/device/event/2018q3/device-event-0003-of-0003.json.zip
+  partition 206/371: https://download.open.fda.gov/device/event/2024q1/device-event-0001-of-0007.json.zip
+  partition 207/371: https://download.open.fda.gov/device/event/2024q1/device-event-0002-of-0007.json.zip
+  partition 208/371: https://download.open.fda.gov/device/event/2024q1/device-event-0003-of-0007.json.zip
+  partition 209/371: https://download.open.fda.gov/device/event/2024q1/device-event-0004-of-0007.json.zip
+  partition 210/371: https://download.open.fda.gov/device/event/2024q1/device-event-0005-of-0007.json.zip
+  partition 211/371: https://download.open.fda.gov/device/event/2024q1/device-event-0006-of-0007.json.zip
+  partition 212/371: https://download.open.fda.gov/device/event/2024q1/device-event-0007-of-0007.json.zip
+  partition 213/371: https://download.open.fda.gov/device/event/1992q4/device-event-0001-of-0001.json.zip
+  partition 214/371: https://download.open.fda.gov/device/event/2008q3/device-event-0001-of-0001.json.zip
+  partition 215/371: https://download.open.fda.gov/device/event/2012q3/device-event-0001-of-0002.json.zip
+  partition 216/371: https://download.open.fda.gov/device/event/2012q3/device-event-0002-of-0002.json.zip
+  partition 217/371: https://download.open.fda.gov/device/event/2016q1/device-event-0001-of-0003.json.zip
+  partition 218/371: https://download.open.fda.gov/device/event/2016q1/device-event-0002-of-0003.json.zip
+  partition 219/371: https://download.open.fda.gov/device/event/2016q1/device-event-0003-of-0003.json.zip
+  partition 220/371: https://download.open.fda.gov/device/event/2022q4/device-event-0001-of-0006.json.zip
+  partition 221/371: https://download.open.fda.gov/device/event/2022q4/device-event-0002-of-0006.json.zip
+  partition 222/371: https://download.open.fda.gov/device/event/2022q4/device-event-0003-of-0006.json.zip
+  partition 223/371: https://download.open.fda.gov/device/event/2022q4/device-event-0004-of-0006.json.zip
+  partition 224/371: https://download.open.fda.gov/device/event/2022q4/device-event-0005-of-0006.json.zip
+  partition 225/371: https://download.open.fda.gov/device/event/2022q4/device-event-0006-of-0006.json.zip
+  partition 226/371: https://download.open.fda.gov/device/event/1993q3/device-event-0001-of-0001.json.zip
+  partition 227/371: https://download.open.fda.gov/device/event/2019q1/device-event-0001-of-0003.json.zip
+  partition 228/371: https://download.open.fda.gov/device/event/2019q1/device-event-0002-of-0003.json.zip
+  partition 229/371: https://download.open.fda.gov/device/event/2019q1/device-event-0003-of-0003.json.zip
+  partition 230/371: https://download.open.fda.gov/device/event/2026q3/device-event-0001-of-0009.json.zip
+  partition 231/371: https://download.open.fda.gov/device/event/2026q3/device-event-0002-of-0009.json.zip
+  partition 232/371: https://download.open.fda.gov/device/event/2026q3/device-event-0003-of-0009.json.zip
+  partition 233/371: https://download.open.fda.gov/device/event/2026q3/device-event-0004-of-0009.json.zip
+  partition 234/371: https://download.open.fda.gov/device/event/2026q3/device-event-0005-of-0009.json.zip
+  partition 235/371: https://download.open.fda.gov/device/event/2026q3/device-event-0006-of-0009.json.zip
+  partition 236/371: https://download.open.fda.gov/device/event/2026q3/device-event-0007-of-0009.json.zip
+  partition 237/371: https://download.open.fda.gov/device/event/2026q3/device-event-0008-of-0009.json.zip
+  partition 238/371: https://download.open.fda.gov/device/event/2026q3/device-event-0009-of-0009.json.zip
+  partition 239/371: https://download.open.fda.gov/device/event/1994q2/device-event-0001-of-0001.json.zip
+  partition 240/371: https://download.open.fda.gov/device/event/2017q1/device-event-0001-of-0003.json.zip
+  partition 241/371: https://download.open.fda.gov/device/event/2017q1/device-event-0002-of-0003.json.zip
+  partition 242/371: https://download.open.fda.gov/device/event/2017q1/device-event-0003-of-0003.json.zip
+  partition 243/371: https://download.open.fda.gov/device/event/2019q2/device-event-0001-of-0003.json.zip
+  partition 244/371: https://download.open.fda.gov/device/event/2019q2/device-event-0002-of-0003.json.zip
+  partition 245/371: https://download.open.fda.gov/device/event/2019q2/device-event-0003-of-0003.json.zip
+  partition 246/371: https://download.open.fda.gov/device/event/2006q4/device-event-0001-of-0001.json.zip
+  partition 247/371: https://download.open.fda.gov/device/event/2025q2/device-event-0001-of-0007.json.zip
+  partition 248/371: https://download.open.fda.gov/device/event/2025q2/device-event-0002-of-0007.json.zip
+  partition 249/371: https://download.open.fda.gov/device/event/2025q2/device-event-0003-of-0007.json.zip
+  partition 250/371: https://download.open.fda.gov/device/event/2025q2/device-event-0004-of-0007.json.zip
+  partition 251/371: https://download.open.fda.gov/device/event/2025q2/device-event-0005-of-0007.json.zip
+  partition 252/371: https://download.open.fda.gov/device/event/2025q2/device-event-0006-of-0007.json.zip
+  partition 253/371: https://download.open.fda.gov/device/event/2025q2/device-event-0007-of-0007.json.zip
+  partition 254/371: https://download.open.fda.gov/device/event/2016q3/device-event-0001-of-0003.json.zip
+  partition 255/371: https://download.open.fda.gov/device/event/2016q3/device-event-0002-of-0003.json.zip
+  partition 256/371: https://download.open.fda.gov/device/event/2016q3/device-event-0003-of-0003.json.zip
+  partition 257/371: https://download.open.fda.gov/device/event/1997q4/device-event-0001-of-0001.json.zip
+  partition 258/371: https://download.open.fda.gov/device/event/2006q3/device-event-0001-of-0001.json.zip
+  partition 259/371: https://download.open.fda.gov/device/event/1998q4/device-event-0001-of-0001.json.zip
+  partition 260/371: https://download.open.fda.gov/device/event/1998q2/device-event-0001-of-0001.json.zip
+  partition 261/371: https://download.open.fda.gov/device/event/2023q2/device-event-0001-of-0007.json.zip
+  partition 262/371: https://download.open.fda.gov/device/event/2023q2/device-event-0002-of-0007.json.zip
+  partition 263/371: https://download.open.fda.gov/device/event/2023q2/device-event-0003-of-0007.json.zip
+  partition 264/371: https://download.open.fda.gov/device/event/2023q2/device-event-0004-of-0007.json.zip
+  partition 265/371: https://download.open.fda.gov/device/event/2023q2/device-event-0005-of-0007.json.zip
+  partition 266/371: https://download.open.fda.gov/device/event/2023q2/device-event-0006-of-0007.json.zip
+  partition 267/371: https://download.open.fda.gov/device/event/2023q2/device-event-0007-of-0007.json.zip
+  partition 268/371: https://download.open.fda.gov/device/event/2022q3/device-event-0001-of-0007.json.zip
+  partition 269/371: https://download.open.fda.gov/device/event/2022q3/device-event-0002-of-0007.json.zip
+  partition 270/371: https://download.open.fda.gov/device/event/2022q3/device-event-0003-of-0007.json.zip
+  partition 271/371: https://download.open.fda.gov/device/event/2022q3/device-event-0004-of-0007.json.zip
+  partition 272/371: https://download.open.fda.gov/device/event/2022q3/device-event-0005-of-0007.json.zip
+  partition 273/371: https://download.open.fda.gov/device/event/2022q3/device-event-0006-of-0007.json.zip
+  partition 274/371: https://download.open.fda.gov/device/event/2022q3/device-event-0007-of-0007.json.zip
+  partition 275/371: https://download.open.fda.gov/device/event/2001q2/device-event-0001-of-0001.json.zip
+  partition 276/371: https://download.open.fda.gov/device/event/1991q4/device-event-0001-of-0001.json.zip
+  partition 277/371: https://download.open.fda.gov/device/event/2013q4/device-event-0001-of-0002.json.zip
+  partition 278/371: https://download.open.fda.gov/device/event/2013q4/device-event-0002-of-0002.json.zip
+  partition 279/371: https://download.open.fda.gov/device/event/2026q1/device-event-0001-of-0009.json.zip
+  partition 280/371: https://download.open.fda.gov/device/event/2026q1/device-event-0002-of-0009.json.zip
+  partition 281/371: https://download.open.fda.gov/device/event/2026q1/device-event-0003-of-0009.json.zip
+  partition 282/371: https://download.open.fda.gov/device/event/2026q1/device-event-0004-of-0009.json.zip
+  partition 283/371: https://download.open.fda.gov/device/event/2026q1/device-event-0005-of-0009.json.zip
+  partition 284/371: https://download.open.fda.gov/device/event/2026q1/device-event-0006-of-0009.json.zip
+  partition 285/371: https://download.open.fda.gov/device/event/2026q1/device-event-0007-of-0009.json.zip
+  partition 286/371: https://download.open.fda.gov/device/event/2026q1/device-event-0008-of-0009.json.zip
+  partition 287/371: https://download.open.fda.gov/device/event/2026q1/device-event-0009-of-0009.json.zip
+  partition 288/371: https://download.open.fda.gov/device/event/2021q1/device-event-0001-of-0006.json.zip
+  partition 289/371: https://download.open.fda.gov/device/event/2021q1/device-event-0002-of-0006.json.zip
+  partition 290/371: https://download.open.fda.gov/device/event/2021q1/device-event-0003-of-0006.json.zip
+  partition 291/371: https://download.open.fda.gov/device/event/2021q1/device-event-0004-of-0006.json.zip
+  partition 292/371: https://download.open.fda.gov/device/event/2021q1/device-event-0005-of-0006.json.zip
+  partition 293/371: https://download.open.fda.gov/device/event/2021q1/device-event-0006-of-0006.json.zip
+  partition 294/371: https://download.open.fda.gov/device/event/2018q1/device-event-0001-of-0003.json.zip
+  partition 295/371: https://download.open.fda.gov/device/event/2018q1/device-event-0002-of-0003.json.zip
+  partition 296/371: https://download.open.fda.gov/device/event/2018q1/device-event-0003-of-0003.json.zip
+  partition 297/371: https://download.open.fda.gov/device/event/1999q3/device-event-0001-of-0001.json.zip
+  partition 298/371: https://download.open.fda.gov/device/event/2013q3/device-event-0001-of-0003.json.zip
+  partition 299/371: https://download.open.fda.gov/device/event/2013q3/device-event-0002-of-0003.json.zip
+  partition 300/371: https://download.open.fda.gov/device/event/2013q3/device-event-0003-of-0003.json.zip
+  partition 301/371: https://download.open.fda.gov/device/event/1995q3/device-event-0001-of-0001.json.zip
+  partition 302/371: https://download.open.fda.gov/device/event/1992q3/device-event-0001-of-0001.json.zip
+  partition 303/371: https://download.open.fda.gov/device/event/2005q3/device-event-0001-of-0001.json.zip
+  partition 304/371: https://download.open.fda.gov/device/event/2023q4/device-event-0001-of-0007.json.zip
+  partition 305/371: https://download.open.fda.gov/device/event/2023q4/device-event-0002-of-0007.json.zip
+  partition 306/371: https://download.open.fda.gov/device/event/2023q4/device-event-0003-of-0007.json.zip
+  partition 307/371: https://download.open.fda.gov/device/event/2023q4/device-event-0004-of-0007.json.zip
+  partition 308/371: https://download.open.fda.gov/device/event/2023q4/device-event-0005-of-0007.json.zip
+  partition 309/371: https://download.open.fda.gov/device/event/2023q4/device-event-0006-of-0007.json.zip
+  partition 310/371: https://download.open.fda.gov/device/event/2023q4/device-event-0007-of-0007.json.zip
+  partition 311/371: https://download.open.fda.gov/device/event/2002q2/device-event-0001-of-0001.json.zip
+  partition 312/371: https://download.open.fda.gov/device/event/1998q1/device-event-0001-of-0001.json.zip
+  partition 313/371: https://download.open.fda.gov/device/event/2015q1/device-event-0001-of-0003.json.zip
+  partition 314/371: https://download.open.fda.gov/device/event/2015q1/device-event-0002-of-0003.json.zip
+  partition 315/371: https://download.open.fda.gov/device/event/2015q1/device-event-0003-of-0003.json.zip
+  partition 316/371: https://download.open.fda.gov/device/event/2016q2/device-event-0001-of-0003.json.zip
+  partition 317/371: https://download.open.fda.gov/device/event/2016q2/device-event-0002-of-0003.json.zip
+  partition 318/371: https://download.open.fda.gov/device/event/2016q2/device-event-0003-of-0003.json.zip
+  partition 319/371: https://download.open.fda.gov/device/event/2018q2/device-event-0001-of-0003.json.zip
+  partition 320/371: https://download.open.fda.gov/device/event/2018q2/device-event-0002-of-0003.json.zip
+  partition 321/371: https://download.open.fda.gov/device/event/2018q2/device-event-0003-of-0003.json.zip
+  partition 322/371: https://download.open.fda.gov/device/event/2017q2/device-event-0001-of-0003.json.zip
+  partition 323/371: https://download.open.fda.gov/device/event/2017q2/device-event-0002-of-0003.json.zip
+  partition 324/371: https://download.open.fda.gov/device/event/2017q2/device-event-0003-of-0003.json.zip
+  partition 325/371: https://download.open.fda.gov/device/event/2017q3/device-event-0001-of-0003.json.zip
+  partition 326/371: https://download.open.fda.gov/device/event/2017q3/device-event-0002-of-0003.json.zip
+  partition 327/371: https://download.open.fda.gov/device/event/2017q3/device-event-0003-of-0003.json.zip
+  partition 328/371: https://download.open.fda.gov/device/event/2008q1/device-event-0001-of-0001.json.zip
+  partition 329/371: https://download.open.fda.gov/device/event/2001q3/device-event-0001-of-0001.json.zip
+  partition 330/371: https://download.open.fda.gov/device/event/2025q1/device-event-0001-of-0008.json.zip
+  partition 331/371: https://download.open.fda.gov/device/event/2025q1/device-event-0002-of-0008.json.zip
+  partition 332/371: https://download.open.fda.gov/device/event/2025q1/device-event-0003-of-0008.json.zip
+  partition 333/371: https://download.open.fda.gov/device/event/2025q1/device-event-0004-of-0008.json.zip
+  partition 334/371: https://download.open.fda.gov/device/event/2025q1/device-event-0005-of-0008.json.zip
+  partition 335/371: https://download.open.fda.gov/device/event/2025q1/device-event-0006-of-0008.json.zip
+  partition 336/371: https://download.open.fda.gov/device/event/2025q1/device-event-0007-of-0008.json.zip
+  partition 337/371: https://download.open.fda.gov/device/event/2025q1/device-event-0008-of-0008.json.zip
+  partition 338/371: https://download.open.fda.gov/device/event/2020q1/device-event-0001-of-0004.json.zip
+  partition 339/371: https://download.open.fda.gov/device/event/2020q1/device-event-0002-of-0004.json.zip
+  partition 340/371: https://download.open.fda.gov/device/event/2020q1/device-event-0003-of-0004.json.zip
+  partition 341/371: https://download.open.fda.gov/device/event/2020q1/device-event-0004-of-0004.json.zip
+  partition 342/371: https://download.open.fda.gov/device/event/2015q4/device-event-0001-of-0003.json.zip
+  partition 343/371: https://download.open.fda.gov/device/event/2015q4/device-event-0002-of-0003.json.zip
+  partition 344/371: https://download.open.fda.gov/device/event/2015q4/device-event-0003-of-0003.json.zip
+  partition 345/371: https://download.open.fda.gov/device/event/1999q1/device-event-0001-of-0001.json.zip
+  partition 346/371: https://download.open.fda.gov/device/event/2015q2/device-event-0001-of-0003.json.zip
+  partition 347/371: https://download.open.fda.gov/device/event/2015q2/device-event-0002-of-0003.json.zip
+  partition 348/371: https://download.open.fda.gov/device/event/2015q2/device-event-0003-of-0003.json.zip
+  partition 349/371: https://download.open.fda.gov/device/event/2022q1/device-event-0001-of-0009.json.zip
+  partition 350/371: https://download.open.fda.gov/device/event/2022q1/device-event-0002-of-0009.json.zip
+  partition 351/371: https://download.open.fda.gov/device/event/2022q1/device-event-0003-of-0009.json.zip
+  partition 352/371: https://download.open.fda.gov/device/event/2022q1/device-event-0004-of-0009.json.zip
+  partition 353/371: https://download.open.fda.gov/device/event/2022q1/device-event-0005-of-0009.json.zip
+  partition 354/371: https://download.open.fda.gov/device/event/2022q1/device-event-0006-of-0009.json.zip
+  partition 355/371: https://download.open.fda.gov/device/event/2022q1/device-event-0007-of-0009.json.zip
+  partition 356/371: https://download.open.fda.gov/device/event/2022q1/device-event-0008-of-0009.json.zip
+  partition 357/371: https://download.open.fda.gov/device/event/2022q1/device-event-0009-of-0009.json.zip
+  partition 358/371: https://download.open.fda.gov/device/event/1996q1/device-event-0001-of-0001.json.zip
+  partition 359/371: https://download.open.fda.gov/device/event/2002q4/device-event-0001-of-0001.json.zip
+  partition 360/371: https://download.open.fda.gov/device/event/2019q3/device-event-0001-of-0005.json.zip
+  partition 361/371: https://download.open.fda.gov/device/event/2019q3/device-event-0002-of-0005.json.zip
+  partition 362/371: https://download.open.fda.gov/device/event/2019q3/device-event-0003-of-0005.json.zip
+  partition 363/371: https://download.open.fda.gov/device/event/2019q3/device-event-0004-of-0005.json.zip
+  partition 364/371: https://download.open.fda.gov/device/event/2019q3/device-event-0005-of-0005.json.zip
+  partition 365/371: https://download.open.fda.gov/device/event/2019q4/device-event-0001-of-0005.json.zip
+  partition 366/371: https://download.open.fda.gov/device/event/2019q4/device-event-0002-of-0005.json.zip
+  partition 367/371: https://download.open.fda.gov/device/event/2019q4/device-event-0003-of-0005.json.zip
+  partition 368/371: https://download.open.fda.gov/device/event/2019q4/device-event-0004-of-0005.json.zip
+  partition 369/371: https://download.open.fda.gov/device/event/2019q4/device-event-0005-of-0005.json.zip
+  partition 370/371: https://download.open.fda.gov/device/event/2010q3/device-event-0001-of-0001.json.zip
+  partition 371/371: https://download.open.fda.gov/device/event/1993q1/device-event-0001-of-0001.json.zip
+PyMAUDE source files retrieved: 2026-09-20
+openFDA export date:            2026-09-16
+Interval between snapshots:     -4 days
+Total reports in either source: 26137190
+  In both:          26136578 (100.0%)
+  Only in PyMAUDE:  302
+  Only in openFDA:  310
+Wrote validation_full_export_mismatches.csv (612 rows)
+Wrote validation_full_export_by_year.csv
+
+=== Part 2: query-level agreement ===
+  product code only: local=128929 openfda=128932 identical=False
+    query_device kwargs: {"product_code": "NIQ"}
+    openFDA query:       device.device_report_product_code:"NIQ"
+  product code + date range: local=53027 openfda=53027 identical=True
+    query_device kwargs: {"product_code": "NIQ", "start_date": "2015-01-01", "end_date": "2023-12-31"}
+    openFDA query:       device.device_report_product_code:"NIQ" AND date_received:[20150101 TO 20231231]
+  brand name exact: local=5819 openfda=5819 identical=True
+    query_device kwargs: {"brand_name": "RESOLUTE ONYX RX"}
+    openFDA query:       device.brand_name.exact:"RESOLUTE ONYX RX"
+  generic name exact: local=777 openfda=774 identical=False
+    query_device kwargs: {"generic_name": "BILIARY STENT"}
+    openFDA query:       device.generic_name.exact:"BILIARY STENT"
+  manufacturer + product code: local=10673 openfda=10673 identical=True
+    query_device kwargs: {"manufacturer_name": "BOSTON SCIENTIFIC", "product_code": "NIQ"}
+    openFDA query:       device.manufacturer_d_name.exact:"BOSTON SCIENTIFIC" AND device.device_report_product_code:"NIQ"
+Wrote validation_query_level.csv
+
+=== Part 3: search_by_device_names() internal validation ===
+  single term: criteria="argon" n=5412 identical=True
+  OR of two terms: criteria=["argon", "cleaner"] n=8376 identical=True
+  AND-within-OR (compound): criteria=[["argon", "cleaner"], "angiojet"] n=2115 identical=True
+  union identity (argon OR angiojet): criteria=["argon", "angiojet"] identical=True
+  intersection identity (argon AND cleaner): criteria=[["argon", "cleaner"]] identical=True
+Wrote validation_search_by_device_names.csv
