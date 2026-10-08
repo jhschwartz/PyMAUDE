@@ -25,8 +25,6 @@ MAUDE is updated continuously and isn't versioned, so PyMAUDE also supports chec
 pip install pymaude
 ```
 
-> Note: this package is under active development ahead of its associated manuscript (see [Publication](#publication) below) — if `pymaude` isn't yet available on PyPI, install from source instead.
-
 ### From source
 
 ```bash
