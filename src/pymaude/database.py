@@ -17,6 +17,7 @@ import os
 import re
 import zipfile
 import hashlib
+import tempfile
 from collections import defaultdict
 from datetime import datetime
 
@@ -52,6 +53,7 @@ class MaudeDatabase:
         self._repair_stats = defaultdict(lambda: {
             'fixed': 0, 'dropped_too_many': 0, 'dropped_unexplained': 0
         })
+        self._tmp_files_to_cleanup = []
 
         os.makedirs(data_dir, exist_ok=True)
         self.conn = duckdb.connect(db_path)
@@ -99,6 +101,7 @@ class MaudeDatabase:
         self._repair_stats = defaultdict(lambda: {
             'fixed': 0, 'dropped_too_many': 0, 'dropped_unexplained': 0
         })
+        self._tmp_files_to_cleanup = []
 
         valid = self._validate(years_list, tables)
         if not valid:
@@ -131,18 +134,26 @@ class MaudeDatabase:
                         f"proceed and accept the loss."
                     )
 
-        for table in sorted(years_by_table):
-            meta = TABLE_METADATA[table]
-            years_for_table = sorted(years_by_table[table])
+        try:
+            for table in sorted(years_by_table):
+                meta = TABLE_METADATA[table]
+                years_for_table = sorted(years_by_table[table])
 
-            if meta['pattern_type'] == 'yearly':
-                self._process_yearly_table(
-                    table, years_for_table, download, force_download, force_reload
-                )
-            else:
-                self._process_cumulative_table(
-                    table, years_for_table, meta, download, force_download, force_reload
-                )
+                if meta['pattern_type'] == 'yearly':
+                    self._process_yearly_table(
+                        table, years_for_table, download, force_download, force_reload
+                    )
+                else:
+                    self._process_cumulative_table(
+                        table, years_for_table, meta, download, force_download, force_reload
+                    )
+        finally:
+            for tmp_path in self._tmp_files_to_cleanup:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            self._tmp_files_to_cleanup = []
 
         self._create_indexes()
         if self.verbose:
@@ -937,18 +948,25 @@ class MaudeDatabase:
         A line with MORE delimiters than expected (a stray literal delimiter
         typed into a text field) can't be disambiguated this way, and neither
         can a run that never resolves to the expected column count (e.g. a
-        truncated file) — both are left for read_csv's ignore_errors to drop,
-        same as today.
+        truncated file). These can't be handed to read_csv's ignore_errors to
+        drop, either: with the lenient strict_mode=false this project uses,
+        DuckDB does not reliably discard an over-wide row — it can instead
+        silently keep it, truncating the extra trailing field(s) and shifting
+        every later column by one, corrupting the record rather than omitting
+        it. So their line numbers (1-indexed, header excluded) are returned
+        for the caller to strip from the file before it ever reaches read_csv.
 
-        Returns (repaired_rows, columns, n_dropped_too_many, n_dropped_unexplained).
-        repaired_rows is a list of tuples of field values (str), in the same
-        column order as the file's header, ready to union into the normal
-        read_csv(...) result (which already silently drops all of these lines
-        itself, via ignore_errors=true).
+        Returns (repaired_rows, columns, n_dropped_too_many, n_dropped_unexplained,
+        bad_line_numbers). repaired_rows is a list of tuples of field values
+        (str), in the same column order as the file's header, ready to union
+        into the read_csv(...) result. bad_line_numbers is the set of physical
+        line numbers (spanning multi-line groups where applicable) that must
+        be excluded from the file passed to read_csv.
         """
         repaired_rows = []
         n_too_many = 0
         n_unexplained = 0
+        bad_line_numbers = set()
 
         with open(filepath, 'rb') as f:
             header = f.readline().rstrip(b'\r\n')
@@ -957,17 +975,22 @@ class MaudeDatabase:
 
             pending_raw = None
             pending_fields = 0
+            pending_start_lineno = None
+            lineno = 0
 
             for raw in f:
+                lineno += 1
                 nf = raw.count(b'|') + 1
                 if pending_raw is None:
                     if nf == expected:
                         continue
                     elif nf > expected:
                         n_too_many += 1
+                        bad_line_numbers.add(lineno)
                     else:
                         pending_raw = raw
                         pending_fields = nf
+                        pending_start_lineno = lineno
                 else:
                     pending_raw += raw
                     pending_fields += nf - 1
@@ -977,35 +1000,63 @@ class MaudeDatabase:
                         pending_raw = None
                     elif pending_fields > expected:
                         n_unexplained += 1
+                        bad_line_numbers.update(range(pending_start_lineno, lineno + 1))
                         pending_raw = None
                         if nf == expected:
                             pass
                         elif nf > expected:
                             n_too_many += 1
+                            bad_line_numbers.add(lineno)
                         else:
                             pending_raw = raw
                             pending_fields = nf
+                            pending_start_lineno = lineno
 
             if pending_raw is not None:
                 n_unexplained += 1
+                bad_line_numbers.update(range(pending_start_lineno, lineno + 1))
 
-        return repaired_rows, columns, n_too_many, n_unexplained
+        return repaired_rows, columns, n_too_many, n_unexplained, bad_line_numbers
+
+    def _write_excluding_lines(self, filepath, bad_line_numbers):
+        """
+        Write a temp copy of filepath with the given 1-indexed physical lines
+        (header excluded from numbering) removed, for lines _repair_malformed_lines
+        flagged as unrecoverable and that read_csv cannot be trusted to drop on
+        its own (see _repair_malformed_lines). Returns the temp file's path.
+        """
+        fd, tmp_path = tempfile.mkstemp(suffix='.txt', dir=self.data_dir)
+        os.close(fd)
+        with open(filepath, 'rb') as src, open(tmp_path, 'wb') as dst:
+            dst.write(src.readline())  # header
+            for lineno, raw in enumerate(src, start=1):
+                if lineno not in bad_line_numbers:
+                    dst.write(raw)
+        return tmp_path
 
     def _repaired_csv_source(self, table, filepath, csv_opts):
         """
-        SQL source for one file's data: the normal read_csv(...) plus any
-        rows recovered by _repair_malformed_lines, unioned in. Updates
-        self._repair_stats[table] for add_years()'s end-of-run report.
+        SQL source for one file's data: read_csv(...) over a version of the
+        file with unrecoverable lines stripped (see _write_excluding_lines),
+        plus any rows recovered by _repair_malformed_lines, unioned in.
+        Updates self._repair_stats[table] for add_years()'s end-of-run report.
         """
-        fp = filepath.replace("'", "''")
-        base_sql = f"SELECT * FROM read_csv('{fp}', {csv_opts})"
-
-        repaired_rows, columns, n_too_many, n_unexplained = self._repair_malformed_lines(filepath)
+        repaired_rows, columns, n_too_many, n_unexplained, bad_line_numbers = (
+            self._repair_malformed_lines(filepath)
+        )
 
         stats = self._repair_stats[table]
         stats['fixed'] += len(repaired_rows)
         stats['dropped_too_many'] += n_too_many
         stats['dropped_unexplained'] += n_unexplained
+
+        source_filepath = filepath
+        if bad_line_numbers:
+            source_filepath = self._write_excluding_lines(filepath, bad_line_numbers)
+            self._tmp_files_to_cleanup.append(source_filepath)
+
+        fp = source_filepath.replace("'", "''")
+        base_sql = f"SELECT * FROM read_csv('{fp}', {csv_opts})"
 
         if not repaired_rows:
             return base_sql

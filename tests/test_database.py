@@ -322,6 +322,71 @@ class TestAddYears:
         db.close()
 
 
+class TestMalformedLineRepair:
+    def test_too_many_delimiter_line_is_dropped_not_corrupted(self, tmp_path):
+        """A line with an extra, unaccounted-for delimiter (e.g. a stray '|'
+        typed into a free-text field) can't be disambiguated by the
+        multi-line-stitching repair logic, and is documented as dropped. With
+        strict_mode=false, DuckDB's read_csv(ignore_errors=true) does not
+        reliably drop such a row on its own — it can silently keep it,
+        truncating the extra trailing field and shifting every later column
+        by one, rather than discarding the row (a real-world instance of this
+        corrupted PATIENT_SEQUENCE_NUMBER-equivalent fields in production
+        data). This must not happen: the malformed row should be excluded
+        entirely, and _repair_stats must report it as dropped, matching
+        _print_repair_report's own claim."""
+        d = tmp_path / 'maude_data'
+        d.mkdir()
+        # 6 columns expected; row 1002 has 7 fields (one extra '|' before MEDTRONIC).
+        master_csv = (
+            "MDR_REPORT_KEY|EVENT_KEY|DATE_RECEIVED|EVENT_TYPE|MANUFACTURER_G1_NAME|PMA_PMN_NUM\n"
+            "1001|2001|01/15/2020|D|MEDTRONIC|P180037\n"
+            "1002|2002|03/20/2020|IN|EXTRA|MEDTRONIC|K193456\n"
+            "1003|2003|06/10/2020|M|COOK MEDICAL|K201234\n"
+        )
+        (d / 'mdrfoithru2020.txt').write_text(master_csv)
+        db = MaudeDatabase(str(tmp_path / 'malformed.duckdb'), data_dir=str(d), verbose=False)
+        db.add_years(2020, tables=['master'])
+
+        keys = set(db.query("SELECT MDR_REPORT_KEY FROM master")['MDR_REPORT_KEY'])
+        assert keys == {'1001', '1003'}, (
+            "the malformed 1002 row must be fully excluded, not loaded with "
+            "shifted/corrupted field values"
+        )
+        assert db._repair_stats['master']['dropped_too_many'] == 1
+        db.close()
+
+    def test_too_many_delimiter_line_does_not_drop_other_rows_sharing_its_key(self, tmp_path):
+        """The fix must exclude only the malformed physical line itself, not
+        every row that happens to share its leading key value — relevant for
+        tables like device/patient/patient_problem where one MDR_REPORT_KEY
+        legitimately spans multiple rows."""
+        d = tmp_path / 'maude_data'
+        d.mkdir()
+        header = (
+            "MDR_REPORT_KEY|BRAND_NAME|GENERIC_NAME|MANUFACTURER_D_NAME|"
+            "DEVICE_REPORT_PRODUCT_CODE|DATE_RECEIVED\n"
+        )
+        # Two legitimate rows for key 1001 (multi-device event), plus a
+        # malformed (7-field) row also keyed 1001 that must be the only one dropped.
+        device_csv = (
+            header +
+            "1001|VENOVO|VENOUS STENT|MEDTRONIC|NIQ|01/15/2020\n"
+            "1001|EXTRA|BAD|SHIFTED|RECORD|HERE|01/15/2020\n"
+            "1001|VICI|VENOUS STENT SYSTEM|BOSTON SCIENTIFIC|NIQ|01/15/2020\n"
+        )
+        (d / 'device2020.txt').write_text(device_csv)
+        db = MaudeDatabase(str(tmp_path / 'shared_key.duckdb'), data_dir=str(d), verbose=False)
+        db.add_years(2020, tables=['device'])
+
+        rows = db.query(
+            "SELECT BRAND_NAME FROM device WHERE MDR_REPORT_KEY = '1001' ORDER BY BRAND_NAME"
+        )['BRAND_NAME'].tolist()
+        assert rows == ['VENOVO', 'VICI']
+        assert db._repair_stats['device']['dropped_too_many'] == 1
+        db.close()
+
+
 class TestQueryDevice:
     def test_brand_name(self, db):
         result = db.query_device(brand_name='Venovo')
