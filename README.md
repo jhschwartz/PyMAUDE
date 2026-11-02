@@ -119,17 +119,23 @@ maude_archive/
 
 For a full MAUDE database that is about 13 GB (roughly 6 GB of Parquet plus 7 GB of raw zips). A restored `.duckdb` file is much larger (roughly 50 GB), so if you only need to query the data, DuckDB can read the Parquet files in place. See [`examples/archiving.ipynb`](./examples/archiving.ipynb) for the details.
 
-## Publication
+## Publication 
 
-A manuscript describing PyMAUDE is in preparation. Citation details will be added here once it's published.
+If you use PyMAUDE in your work, please cite our paper published in [*Cureus*](https://doi.org/10.7759/cureus.118938):
+
+> Schwartz JH, Almoussa MM, Blattman N, Makary MS. PyMAUDE: A Python Library for Local and Reproducible Analysis of the US Food and Drug Administration's Manufacturer and User Facility Device Experience (MAUDE) Database. *Cureus*. 2026;18(11):e118938. doi:10.7759/cureus.118938
 
 ```bibtex
 @article{pymaude,
-  title   = {PyMAUDE: a Python library for local and reproducible analysis of the FDA Manufacturer and User Facility Device Experience (MAUDE) database},
-  author  = {Schwartz, Jacob; Almoussa, Maya; Blattman, Nicole; Makary, Mina S},
-  journal = {},
+  title   = {{PyMAUDE}: A {Python} Library for Local and Reproducible Analysis of the {US} {Food} and {Drug} {Administration}'s {Manufacturer} and {User} {Facility} {Device} {Experience} ({MAUDE}) Database},
+  author  = {Schwartz, Jacob H. and Almoussa, Maya M. and Blattman, Nicole and Makary, Mina S.},
+  journal = {Cureus},
+  volume  = {18},
+  number  = {11},
+  pages   = {e118938},
   year    = {2026},
-  doi     = {}
+  month   = {11},
+  doi     = {10.7759/cureus.118938}
 }
 ```
 
